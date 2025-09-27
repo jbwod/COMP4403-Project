@@ -1,0 +1,49 @@
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Python / build ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+
+# --- Virtual envs ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Data / results (keep configs & notebooks tracked) ---
+results/
+runs/
+logs/
+figs/
+# If you want to keep small CSV summaries tracked, comment the next line:
+*.csv
+*.parquet
+*.feather
+
+# --- Cache / tooling ---
+.mypy_cache/
+.pytest_cache/
+.pyre/
+.coverage
+.tox/
+.nox/
+.cache/
+pytestdebug.log
+
+# --- Envs /
