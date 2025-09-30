@@ -47,19 +47,19 @@ def assign_random_agent_types(G: nx.Graph, probs: Optional[Dict[AgentType, float
 
     return agents
 
-def assign_n_leechers(G: nx.Graph, n: int, seed: Optional[int] = None) -> Dict[int, Agent]:
+def assign_n_seeders(G: nx.Graph, n: int, seed: Optional[int] = None) -> Dict[int, Agent]:
     rng = random.Random(seed)
     nodes = list(G.nodes)
     if n > len(nodes):
         raise ValueError("n cannot be greater than the number of nodes in the graph.")
 
-    leechers = set(rng.sample(nodes, n))
+    seeders = set(rng.sample(nodes, n))
     agents: Dict[int, Agent] = {}
     for node in nodes:
-        if node in leechers:
-            agent_type = AgentType.LEECHER
-        else:
+        if node in seeders:
             agent_type = AgentType.SEEDER
+        else:
+            agent_type = AgentType.LEECHER
         agents[node] = Agent(node_id=node, agent_type=agent_type)
         G.nodes[node]["role"] = agent_type.value
 
