@@ -1,7 +1,7 @@
 import random
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 
@@ -9,13 +9,14 @@ class AgentType(str, Enum):
     """Enumeration for different types of agents."""
     SEEDER = "seeder"
     LEECHER = "leecher"
-    FREE_RIDER = "free_rider"
-    ALTRUIST = "altruist"
+
 
 @dataclass
 class Agent:
     node_id: int
     agent_type: AgentType
+    file_pieces: Set[int] = field(default_factory=set)
+    upload_capacity: int = 5  # Max pieces the agent can upload per round   
 
 
 def normal_prob(probs: Dict[AgentType, float]) -> Dict[AgentType, float]:
@@ -24,14 +25,12 @@ def normal_prob(probs: Dict[AgentType, float]) -> Dict[AgentType, float]:
         raise ValueError("Sum of probabilities must be greater than zero.")
     return {k: v / total for k, v in probs.items()}
 
-def assign_agent_types(G: nx.Graph, probs: Optional[Dict[AgentType, float]] = None, seed: Optional[int] = None) -> Dict[int, Agent]:
+def assign_random_agent_types(G: nx.Graph, probs: Optional[Dict[AgentType, float]] = None, seed: Optional[int] = None) -> Dict[int, Agent]:
     if probs is None:
         # Default test
         probs = {
             AgentType.SEEDER: 0.25,
-            AgentType.LEECHER: 0.25,
-            AgentType.FREE_RIDER: 0.25,
-            AgentType.ALTRUIST: 0.25,
+            AgentType.LEECHER: 0.25
         }
 
     probs = normal_prob(probs)
@@ -47,3 +46,22 @@ def assign_agent_types(G: nx.Graph, probs: Optional[Dict[AgentType, float]] = No
         G.nodes[node]["role"] = agent_type.value
 
     return agents
+
+def assign_n_leechers(G: nx.Graph, n: int, seed: Optional[int] = None) -> Dict[int, Agent]:
+    rng = random.Random(seed)
+    nodes = list(G.nodes)
+    if n > len(nodes):
+        raise ValueError("n cannot be greater than the number of nodes in the graph.")
+
+    leechers = set(rng.sample(nodes, n))
+    agents: Dict[int, Agent] = {}
+    for node in nodes:
+        if node in leechers:
+            agent_type = AgentType.LEECHER
+        else:
+            agent_type = AgentType.SEEDER
+        agents[node] = Agent(node_id=node, agent_type=agent_type)
+        G.nodes[node]["role"] = agent_type.value
+
+    return agents
+    

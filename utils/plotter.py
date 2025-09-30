@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import networkx as nx
 
-ROLES = {"seeder": "blue", "leecher": "green", "free_rider": "red", "altruist": "orange"}
+ROLES = {"seeder": "blue", "leecher": "green"}
 
 
 

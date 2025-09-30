@@ -1,6 +1,8 @@
 import math
 import random
 import networkx as nx
+from typing import Dict
+
 
 def erdos_renyi_graph(n: int, p: float) -> nx.Graph:
     """ER Graph generator ensuring the graph is connected."""
