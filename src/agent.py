@@ -180,9 +180,13 @@ def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> boo
         return False
     
     pieces = G.nodes[node_id].get("file_pieces", set())
+    was_complete = G.nodes[node_id].get("is_complete", False)
     is_complete = len(pieces) >= total_pieces
+    
     G.nodes[node_id]["is_complete"] = is_complete
-    return is_complete
+    
+    # true only if agent just became complete (was incomplete, now complete)
+    return is_complete and not was_complete
 
 
 def agent_behavior(G: nx.Graph, node_id: int, total_pieces: int, seed: Optional[int] = None) -> Dict:
@@ -238,25 +242,7 @@ def agent_behavior(G: nx.Graph, node_id: int, total_pieces: int, seed: Optional[
                 requests_sent += 1
         
     elif role == "seeder":
-        # Seeder respond to incoming piece requests
-        # In a real implementation, this would check for incoming requests
-        # For now, we'll simulate by checking what neighbors need and responding
-        neighbors = list(G.neighbors(node_id))
-        uploads_planned = 0
-        
-        rng.shuffle(neighbors)
-        
-        for neighbor in neighbors:
-            if uploads_planned >= upload_capacity:
-                break
-                
-            neighbor_pieces = G.nodes[neighbor].get("file_pieces", set())
-            needed_pieces = pieces - neighbor_pieces
-            
-            if needed_pieces:
-                #responding to a request for a piece the neighbor needs
-                piece_to_upload = rng.choice(list(needed_pieces))
-                actions["uploads"].append((neighbor, piece_to_upload))
-                uploads_planned += 1
+        # Seeders just need to be available to respond to requests
+        pass
     
     return actions
