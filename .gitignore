@@ -47,3 +47,4 @@ figs/
 pytestdebug.log
 
 # --- Envs /
+.env
