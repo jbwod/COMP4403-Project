@@ -46,6 +46,7 @@ def assign_random_agent_types(G: nx.Graph, probs: Optional[Dict[AgentType, float
         agent_type = rng.choices(roles, weights=weights)[0]
         agents[node] = Agent(node_id=node, agent_type=agent_type)
         G.nodes[node]["role"] = agent_type.value
+        G.nodes[node]["agent_object"] = agents[node]
 
     return agents
 
@@ -64,6 +65,7 @@ def assign_n_seeders(G: nx.Graph, n: int, seed: Optional[int] = None) -> Dict[in
             agent_type = AgentType.LEECHER
         agents[node] = Agent(node_id=node, agent_type=agent_type)
         G.nodes[node]["role"] = agent_type.value
+        G.nodes[node]["agent_object"] = agents[node]
 
     return agents
 
@@ -88,6 +90,7 @@ def add_node(G: nx.Graph, agent_type: AgentType, node_id: Optional[int] = None,
     G.add_node(node_id)
     agent = Agent(node_id=node_id, agent_type=agent_type)
     G.nodes[node_id]["role"] = agent_type.value
+    G.nodes[node_id]["agent_object"] = agent
     
     # Connect to existing nodes if requested
     if connect_to_existing and len(G.nodes()) > 1:
@@ -180,3 +183,80 @@ def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> boo
     is_complete = len(pieces) >= total_pieces
     G.nodes[node_id]["is_complete"] = is_complete
     return is_complete
+
+
+def agent_behavior(G: nx.Graph, node_id: int, total_pieces: int, seed: Optional[int] = None) -> Dict:
+    """
+    Agent Request-Response Behavior.
+    """
+    rng = random.Random(seed)
+    actions = {
+        "requests": [],  #  requests sent by leechers
+        "uploads": [],   #  uploaded by seeders (responses to requests)
+        "downloads": [], #  downloaded by leechers (from responses)
+        "completed": False
+    }
+    
+    if node_id not in G.nodes():
+        return actions
+    
+    agent_data = G.nodes[node_id]
+    role = agent_data.get("role")
+    pieces = agent_data.get("file_pieces", set())
+    
+    agent_obj = agent_data.get("agent_object")
+    if agent_obj:
+        upload_capacity = agent_obj.upload_capacity
+        download_capacity = agent_obj.download_capacity
+    else:
+        upload_capacity = agent_data.get("upload_capacity", 1)
+        download_capacity = agent_data.get("download_capacity", 1)
+    
+    if agent_data.get("is_complete", False):
+        return actions
+    
+    if role == "leecher":
+        neighbors = list(G.neighbors(node_id))
+        potential_sources = []
+        
+        for neighbor in neighbors:
+            neighbor_pieces = G.nodes[neighbor].get("file_pieces", set())
+            available_pieces = neighbor_pieces - pieces
+            if available_pieces:
+                potential_sources.append((neighbor, available_pieces))
+        
+        requests_sent = 0
+        for source, available_pieces in potential_sources:
+            if requests_sent >= download_capacity:
+                break
+            source_pieces = list(available_pieces)
+            rng.shuffle(source_pieces)
+            for piece in source_pieces:
+                if requests_sent >= download_capacity:
+                    break
+                actions["requests"].append((source, piece))
+                requests_sent += 1
+        
+    elif role == "seeder":
+        # Seeder respond to incoming piece requests
+        # In a real implementation, this would check for incoming requests
+        # For now, we'll simulate by checking what neighbors need and responding
+        neighbors = list(G.neighbors(node_id))
+        uploads_planned = 0
+        
+        rng.shuffle(neighbors)
+        
+        for neighbor in neighbors:
+            if uploads_planned >= upload_capacity:
+                break
+                
+            neighbor_pieces = G.nodes[neighbor].get("file_pieces", set())
+            needed_pieces = pieces - neighbor_pieces
+            
+            if needed_pieces:
+                #responding to a request for a piece the neighbor needs
+                piece_to_upload = rng.choice(list(needed_pieces))
+                actions["uploads"].append((neighbor, piece_to_upload))
+                uploads_planned += 1
+    
+    return actions

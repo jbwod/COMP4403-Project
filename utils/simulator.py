@@ -1,7 +1,7 @@
 import random
 from typing import Dict, Optional
 
-from src.agent import update_agent_completion
+from src.agent import update_agent_completion, agent_behavior
 
 import networkx as nx
 
@@ -15,62 +15,67 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None) -
     new_completions = []
     
     #(agents who need pieces)
-    leechers = [node for node in G.nodes() 
-                if G.nodes[node].get("role") == "leecher" and not G.nodes[node].get("is_complete", False)]
+    all_actions = {}
+    for node in G.nodes():
+        node_seed = rng.randint(1, 10000) if seed is not None else None
+        all_actions[node] = agent_behavior(G, node, total_pieces, node_seed)
     
-    # Collect all planned transfers first (without executing them)
-    planned_transfers = []
-    
-    for leecher in leechers:
-        leecher_pieces = G.nodes[leecher].get("file_pieces", set())
-        download_capacity = G.nodes[leecher].get("download_capacity", 1)
-        
-        # Find those who can share
-        neighbors = list(G.neighbors(leecher))
-        potential_sources = []
-        
-        for neighbor in neighbors:
-            neighbor_pieces = G.nodes[neighbor].get("file_pieces", set())
-            # this is the pieces the neighbor has that the leecher doesn't
-            available_pieces = neighbor_pieces - leecher_pieces
-            if available_pieces:
-                potential_sources.append((neighbor, available_pieces))
-        
-        # Randomly select pieces to download (up to capacity) of the leecher
-        pieces_to_download = []
-        for source, available_pieces in potential_sources:
-            if len(pieces_to_download) >= download_capacity:
-                break
-            # Randomly select pieces from this source (neighbor)
-            source_pieces = list(available_pieces)
-            rng.shuffle(source_pieces)
-            for piece in source_pieces:
-                if len(pieces_to_download) >= download_capacity:
-                    break
-                pieces_to_download.append((source, piece))
-        
-        # Plan transfers (don't execute yet)
-        for source, piece in pieces_to_download:
-            planned_transfers.append({
-                "from": source,
-                "to": leecher,
+    # 1. Collect all requests
+    all_requests = []
+    for node, actions in all_actions.items():
+        for source, piece in actions["requests"]:
+            all_requests.append({
+                "requester": node,
+                "source": source,
                 "piece": piece
             })
     
-    # Execute all transfers simultaneously
-    for transfer in planned_transfers:
-        G.nodes[transfer["to"]]["file_pieces"].add(transfer["piece"])
-        transfers.append(transfer)
+    # 2. Respond to requests
+    seeder_responses = {}
+    for node, actions in all_actions.items():
+        if G.nodes[node].get("role") == "seeder":
+            seeder_responses[node] = []
+            uploads_planned = 0
+            upload_capacity = G.nodes[node].get("agent_object").upload_capacity if G.nodes[node].get("agent_object") else 1
+            
+            requests_to_this_seeder = [req for req in all_requests if req["source"] == node]
+            rng.shuffle(requests_to_this_seeder)
+            
+            for request in requests_to_this_seeder:
+                if uploads_planned >= upload_capacity:
+                    break
+                
+                # Check if seeder has the requested piece
+                seeder_pieces = G.nodes[node].get("file_pieces", set())
+                if request["piece"] in seeder_pieces:
+                    seeder_responses[node].append(request)
+                    uploads_planned += 1
+    
+    # 3. Execute transfers
+    for seeder, responses in seeder_responses.items():
+        for response in responses:
+            requester = response["requester"]
+            piece = response["piece"]
+            
+            # Add piece to requester
+            G.nodes[requester]["file_pieces"].add(piece)
+            transfers.append({
+                "from": seeder,
+                "to": requester,
+                "piece": piece
+            })
     
     # Check for completions after all transfers
-    for leecher in leechers:
-        if update_agent_completion(G, leecher, total_pieces):
-            new_completions.append(leecher)
+    for node in G.nodes():
+        if update_agent_completion(G, node, total_pieces):
+            new_completions.append(node)
     
     return {
         "transfers": transfers,
         "new_completions": new_completions,
-        "total_transfers": len(transfers)
+        "total_transfers": len(transfers),
+        "total_requests": len(all_requests),
+        "fulfilled_requests": len(transfers)
     }
 
 
