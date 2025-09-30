@@ -29,30 +29,29 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None) -
                 "source": source,
                 "piece": piece
             })
-    
-    # 2. Respond to requests
-    seeder_responses = {}
+    # 2. Respond to requests from any Node
+    node_responses = {}
     for node, actions in all_actions.items():
-        if G.nodes[node].get("role") == "seeder":
-            seeder_responses[node] = []
+        node_pieces = G.nodes[node].get("file_pieces", set())
+        if node_pieces:
+            node_responses[node] = []
             uploads_planned = 0
             upload_capacity = G.nodes[node].get("agent_object").upload_capacity if G.nodes[node].get("agent_object") else 1
             
-            requests_to_this_seeder = [req for req in all_requests if req["source"] == node]
-            rng.shuffle(requests_to_this_seeder)
+            requests_to_this_node = [req for req in all_requests if req["source"] == node]
+            rng.shuffle(requests_to_this_node)
             
-            for request in requests_to_this_seeder:
+            for request in requests_to_this_node:
                 if uploads_planned >= upload_capacity:
                     break
                 
-                # Check if seeder has the requested piece
-                seeder_pieces = G.nodes[node].get("file_pieces", set())
-                if request["piece"] in seeder_pieces:
-                    seeder_responses[node].append(request)
+                # Check if node has the requested piece
+                if request["piece"] in node_pieces:
+                    node_responses[node].append(request)
                     uploads_planned += 1
     
     # 3. Execute transfers
-    for seeder, responses in seeder_responses.items():
+    for node, responses in node_responses.items():
         for response in responses:
             requester = response["requester"]
             piece = response["piece"]
@@ -60,7 +59,7 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None) -
             # Add piece to requester
             G.nodes[requester]["file_pieces"].add(piece)
             transfers.append({
-                "from": seeder,
+                "from": node,
                 "to": requester,
                 "piece": piece
             })
