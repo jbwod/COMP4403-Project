@@ -180,4 +180,3 @@ def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> boo
     is_complete = len(pieces) >= total_pieces
     G.nodes[node_id]["is_complete"] = is_complete
     return is_complete
-    

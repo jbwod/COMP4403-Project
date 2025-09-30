@@ -3,10 +3,6 @@ import networkx as nx
 
 ROLES = {"seeder": "blue", "leecher": "green"}
 
-
-
-
-
 def draw_graph(graph):
     """Draws the given graph using matplotlib."""
     plt.figure(figsize=(8, 6))
