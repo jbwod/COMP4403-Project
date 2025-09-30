@@ -16,7 +16,9 @@ class Agent:
     node_id: int
     agent_type: AgentType
     file_pieces: Set[int] = field(default_factory=set)
-    upload_capacity: int = 5  # Max pieces the agent can upload per round   
+    upload_capacity: int = 1
+    download_capacity: int = 1
+    is_complete: bool = False
 
 
 def normal_prob(probs: Dict[AgentType, float]) -> Dict[AgentType, float]:
@@ -128,4 +130,54 @@ def add_random_node(G: nx.Graph, agent_type_probs: Optional[Dict[AgentType, floa
     chosen_agent_type = rng.choices(agent_types, weights=weights)[0]
     
     return add_node(G, chosen_agent_type, node_id, connect_to_existing, connection_prob)
+
+
+def initialize_file_sharing(G: nx.Graph, file_size_pieces: int, seed: Optional[int] = None) -> None:
+    """
+    File sharing, give seeders all file pieces and leechers none as a test
+    """
+    rng = random.Random(seed)
+    
+    for node, data in G.nodes(data=True):
+        if "role" in data:
+            agent_type = AgentType(data["role"])
+            if agent_type == AgentType.SEEDER:
+                # Seeders start with all file pieces
+                G.nodes[node]["file_pieces"] = set(range(file_size_pieces))
+                G.nodes[node]["is_complete"] = True
+            else:  # LEECHER (just a placeholder for now)
+                # Leechers start with no pieces
+                G.nodes[node]["file_pieces"] = set()
+                G.nodes[node]["is_complete"] = False
+
+
+def get_agent_info(G: nx.Graph, node_id: int) -> Optional[Dict]:
+    """
+    Get agent information
+    """
+    if node_id not in G.nodes():
+        return None
+    
+    data = G.nodes[node_id]
+    return {
+        "node_id": node_id,
+        "role": data.get("role", "unknown"),
+        "file_pieces": data.get("file_pieces", set()),
+        "num_pieces": len(data.get("file_pieces", set())),
+        "is_complete": data.get("is_complete", False),
+        "neighbors": list(G.neighbors(node_id))
+    }
+
+
+def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> bool:
+    """
+    is complete is true if the agent has all file pieces
+    """
+    if node_id not in G.nodes():
+        return False
+    
+    pieces = G.nodes[node_id].get("file_pieces", set())
+    is_complete = len(pieces) >= total_pieces
+    G.nodes[node_id]["is_complete"] = is_complete
+    return is_complete
     
