@@ -2,8 +2,6 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
-import os
-from datetime import datetime
 
 
 ROLES = {"seeder": "blue", "leecher": "green"}
@@ -29,31 +27,9 @@ class TransferConfig:
     label_alpha: float = 0.7
 
 class GraphPlotter:    
-    def __init__(self, plot_config: PlotConfig = None, transfer_config: TransferConfig = None, 
-                 save_images: bool = False, output_dir: str = None):
+    def __init__(self, plot_config: PlotConfig = None, transfer_config: TransferConfig = None):
         self.plot_config = plot_config or PlotConfig()
         self.transfer_config = transfer_config or TransferConfig()
-        self.save_images = save_images
-        self.output_dir = output_dir or self.create_output_directory()
-        self.image_counter = 0
-    
-    def create_output_directory(self) -> str:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = f"data/simulation_{timestamp}"
-        os.makedirs(output_dir, exist_ok=True)
-        return output_dir
-    
-    def save_image(self, filename: str = None) -> str:
-        if not self.save_images:
-            return None
-        
-        if filename is None:
-            self.image_counter += 1
-            filename = f"graph_{self.image_counter:03d}.png"
-        
-        filepath = os.path.join(self.output_dir, filename)
-        plt.savefig(filepath, dpi=300, bbox_inches='tight')
-        return filepath
     
     def get_node_colors(self, graph: nx.Graph) -> List[str]:
         """Get colors for nodes based on their roles."""
@@ -133,12 +109,6 @@ class GraphPlotter:
         
         plt.title(title or self.create_title())
         self.create_legend(graph)
-        
-        # Save if enabled
-        if self.save_images:
-            saved_path = self.save_image()
-            print(f"graph image: {saved_path}")
-        
         plt.show()
     
     def draw_with_transfers(self, graph: nx.Graph, total_pieces: Optional[int] = None, 
@@ -161,24 +131,15 @@ class GraphPlotter:
         
         plt.title(self.create_title(round_num, transfers))
         self.create_legend(graph, show_transfers=bool(transfers))
-        
-        # Save if enabled
-        if self.save_images:
-            filename = f"round_{round_num:03d}.png" if round_num is not None else None
-            saved_path = self.save_image(filename)
-            print(f"graph image: {saved_path}")
-        
         plt.show()
 
-def draw_graph(graph: nx.Graph, total_pieces: Optional[int] = None, 
-               save_images: bool = False) -> None:
+def draw_graph(graph: nx.Graph, total_pieces: Optional[int] = None) -> None:
     """Draws the given graph using matplotlib."""
-    plotter = GraphPlotter(save_images=save_images)
+    plotter = GraphPlotter()
     plotter.draw_base_graph(graph, total_pieces)
 
 def draw_graph_with_transfers(graph: nx.Graph, total_pieces: Optional[int] = None, 
                             transfers: Optional[List[Dict]] = None, 
-                            round_num: Optional[int] = None, 
-                            save_images: bool = False) -> None:
-    plotter = GraphPlotter(save_images=save_images)
+                            round_num: Optional[int] = None) -> None:
+    plotter = GraphPlotter()
     plotter.draw_with_transfers(graph, total_pieces, transfers, round_num)

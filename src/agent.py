@@ -19,79 +19,8 @@ class Agent:
     upload_capacity: int = 1
     download_capacity: int = 1
     is_complete: bool = False
-    
-    def get_needed_pieces(self, total_pieces: int) -> Set[int]:
-        """Get pieces this agent needs to complete the file."""
-        return set(range(total_pieces)) - self.file_pieces
-    
-    def get_available_pieces_for_upload(self, requester_pieces: Set[int]) -> Set[int]:
-        """Get pieces this agent can upload to a specific requester."""
-        return self.file_pieces - requester_pieces
-    
-    def can_upload(self, current_uploads: int) -> bool:
-        """Check if this agent can perform another upload."""
-        return current_uploads < self.upload_capacity
-    
-    def can_download(self, current_downloads: int) -> bool:
-        """Check if this agent can perform another download."""
-        return current_downloads < self.download_capacity
-    
-    def decide_requests(self, neighbors: List[int], graph: nx.Graph, total_pieces: int, 
-                       current_downloads: int, rng: random.Random) -> List[Tuple[int, int]]:
-        """Decide which pieces to request from which neighbors."""
-        if self.agent_type != AgentType.LEECHER or not self.can_download(current_downloads):
-            return []
-        
-        needed_pieces = self.get_needed_pieces(total_pieces)
-        if not needed_pieces:
-            return []
-        
-        requests = []
-        remaining_capacity = self.download_capacity - current_downloads
-        
-        # Piece finding
-        potential_sources = []
-        for neighbor in neighbors:
-            neighbor_pieces = graph.nodes[neighbor].get("file_pieces", set())
-            available_pieces = neighbor_pieces & needed_pieces
-            if available_pieces:
-                potential_sources.append((neighbor, available_pieces))
-        
-        # TODO: Instead of Random, maybe use a more intelligent algorithm
-        for source, available_pieces in potential_sources:
-            if len(requests) >= remaining_capacity:
-                break
-            piece = rng.choice(list(available_pieces))
-            requests.append((source, piece))
-            needed_pieces.discard(piece)
-        
-        return requests
-    
-    def decide_uploads(self, incoming_requests: List[Tuple[int, int]], graph: nx.Graph,
-                      current_uploads: int, rng: random.Random) -> List[Tuple[int, int]]:
-        """Decide which requests to fulfill based on available capacity and pieces."""
-        if not self.can_upload(current_uploads) or not incoming_requests:
-            return []
-        
-        uploads = []
-        remaining_capacity = self.upload_capacity - current_uploads
-        
-        # Shuffle requests for fairness
-        rng.shuffle(incoming_requests)
-        
-        for requester, piece in incoming_requests:
-            if len(uploads) >= remaining_capacity:
-                break
-            
-            # Check if we have this piece
-            if piece in self.file_pieces:
-                uploads.append((requester, piece))
-        
-        return uploads
 
 
-
-# DEPRECATED
 def normal_prob(probs: Dict[AgentType, float]) -> Dict[AgentType, float]:
     total = float(sum(probs.values()))
     if total <= 0:
@@ -260,12 +189,9 @@ def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> boo
     return is_complete and not was_complete
 
 
-
-## AGENT FUNCTIONS
-
 def agent_behavior(G: nx.Graph, node_id: int, total_pieces: int, seed: Optional[int] = None) -> Dict:
     """
-    Agent Request Behavior.
+    Agent Request-Response Behavior.
     """
     rng = random.Random(seed)
     actions = {
@@ -279,44 +205,44 @@ def agent_behavior(G: nx.Graph, node_id: int, total_pieces: int, seed: Optional[
         return actions
     
     agent_data = G.nodes[node_id]
+    role = agent_data.get("role")
+    pieces = agent_data.get("file_pieces", set())
+    
     agent_obj = agent_data.get("agent_object")
+    if agent_obj:
+        upload_capacity = agent_obj.upload_capacity
+        download_capacity = agent_obj.download_capacity
+    else:
+        upload_capacity = agent_data.get("upload_capacity", 1)
+        download_capacity = agent_data.get("download_capacity", 1)
     
-    if not agent_obj:
+    if agent_data.get("is_complete", False):
         return actions
     
-    agent_obj.file_pieces = agent_data.get("file_pieces", set())
-    agent_obj.is_complete = agent_data.get("is_complete", False)
-    
-    if agent_obj.is_complete:
-        return actions
-   
-    neighbors = list(G.neighbors(node_id))
-    
-    # Decide what to request
-    if agent_obj.agent_type == AgentType.LEECHER:
-        requests = agent_obj.decide_requests(neighbors, G, total_pieces, 0, rng)
-        actions["requests"] = requests
+    if role == "leecher":
+        neighbors = list(G.neighbors(node_id))
+        potential_sources = []
+        
+        for neighbor in neighbors:
+            neighbor_pieces = G.nodes[neighbor].get("file_pieces", set())
+            available_pieces = neighbor_pieces - pieces
+            if available_pieces:
+                potential_sources.append((neighbor, available_pieces))
+        
+        requests_sent = 0
+        for source, available_pieces in potential_sources:
+            if requests_sent >= download_capacity:
+                break
+            source_pieces = list(available_pieces)
+            rng.shuffle(source_pieces)
+            for piece in source_pieces:
+                if requests_sent >= download_capacity:
+                    break
+                actions["requests"].append((source, piece))
+                requests_sent += 1
+        
+    elif role == "seeder":
+        # Seeders just need to be available to respond to requests
+        pass
     
     return actions
-
-
-def agent_upload_behavior(G: nx.Graph, node_id: int, incoming_requests: List[Tuple[int, int]], 
-                         seed: Optional[int] = None) -> List[Tuple[int, int]]:
-    """
-    Agent upload behavior.
-    """
-    rng = random.Random(seed)
-    
-    if node_id not in G.nodes():
-        return []
-    
-    agent_data = G.nodes[node_id]
-    agent_obj = agent_data.get("agent_object")
-    
-    if not agent_obj:
-        return []
-    
-    agent_obj.file_pieces = agent_data.get("file_pieces", set())
-    
-    uploads = agent_obj.decide_uploads(incoming_requests, G, 0, rng)
-    return uploads
