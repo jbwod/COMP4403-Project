@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 
-ROLES = {"seeder": "blue", "leecher": "green"}
+ROLES = {"seeder": "blue", "leecher": "green", "hybrid": "purple"}
 DEFAULT_FIGURE_SIZE = (10, 8)
 DEFAULT_LAYOUT_SEED = 42
 
@@ -55,9 +55,25 @@ class GraphPlotter:
         plt.savefig(filepath, dpi=300, bbox_inches='tight')
         return filepath
     
-    def get_node_colors(self, graph: nx.Graph) -> List[str]:
+    def get_node_colors(self, graph: nx.Graph, transfers: List[Dict] = None) -> List[str]:
         """Get colors for nodes based on their roles."""
-        return [ROLES.get(graph.nodes[node].get("role"), 'lightblue') for node in graph.nodes()]
+        colors = []
+        for node in graph.nodes():
+            role = graph.nodes[node].get("role")
+            
+            # both sending and recieving?
+            is_hybrid = False
+            if transfers:
+                sending = any(t["from"] == node for t in transfers)
+                receiving = any(t["to"] == node for t in transfers)
+                is_hybrid = sending and receiving
+            
+            if is_hybrid:
+                colors.append(ROLES["hybrid"])
+            else:
+                colors.append(ROLES.get(role, 'lightblue'))
+        
+        return colors
     
     def get_node_positions(self, graph: nx.Graph) -> Dict:
         """Get node positions using spring."""
@@ -98,7 +114,7 @@ class GraphPlotter:
             
         handles = [
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, 
-                      markersize=10, label=role) 
+                      markersize=10, label=role.title()) 
             for role, color in ROLES.items()
         ]
         
@@ -147,7 +163,7 @@ class GraphPlotter:
         """Draw graph with transfer visual."""
         plt.figure(figsize=self.plot_config.figure_size)
         pos = self.get_node_positions(graph)
-        node_colors = self.get_node_colors(graph)
+        node_colors = self.get_node_colors(graph, transfers)
         
         nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
                 node_color=node_colors, edge_color=self.plot_config.edge_color, 

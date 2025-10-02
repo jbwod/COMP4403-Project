@@ -241,6 +241,25 @@ def get_agent_info(G: nx.Graph, node_id: int) -> Optional[Dict]:
     }
 
 
+def change_agent_role(G: nx.Graph, node_id: int, new_role: str) -> bool:
+    """
+    Update an Agent Role
+    """
+    if node_id not in G.nodes():
+        return False
+
+    if new_role not in ["seeder", "leecher"]:
+        raise ValueError(f"Invalid role: {new_role}. Must be 'seeder' or 'leecher'")
+    
+    G.nodes[node_id]["role"] = new_role
+    
+    agent_obj = G.nodes[node_id].get("agent_object")
+    if agent_obj:
+        agent_obj.agent_type = AgentType(new_role)
+    
+    return True
+
+
 def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> bool:
     """
     is complete is true if the agent has all file pieces
@@ -253,6 +272,14 @@ def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> boo
     is_complete = len(pieces) >= total_pieces
     
     G.nodes[node_id]["is_complete"] = is_complete
+    
+    if is_complete and not was_complete:
+        current_role = G.nodes[node_id].get("role")
+        if current_role == "leecher":
+            change_agent_role(G, node_id, "seeder")
+            agent_obj = G.nodes[node_id].get("agent_object")
+            if agent_obj:
+                agent_obj.is_complete = True
     
     # true only if agent just became complete (was incomplete, now complete)
     return is_complete and not was_complete
