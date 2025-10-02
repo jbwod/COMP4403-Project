@@ -59,6 +59,7 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None) -
     
     return {
         "transfers": transfers,
+        "requests": all_requests,
         "new_completions": new_completions,
         "total_transfers": len(transfers),
         "total_requests": len(all_requests),
@@ -86,45 +87,3 @@ def get_network_stats(G: nx.Graph, total_pieces: int) -> Dict:
         "total_pieces_in_network": total_pieces_in_network,
         "completion_rate": len(complete_leechers) / len(leechers) if leechers else 1.0
     }
-
-
-def simulate_with_saved_images(G: nx.Graph, total_pieces: int, rounds: int = 5, 
-                              seed: Optional[int] = None) -> str:
-    """Run simulation and save images of each round to a timestamped folder."""
-    print(f"🚀 Starting P2P simulation with image saving: {G.number_of_nodes()} nodes, {rounds} rounds")
-    
-    # Create plotter with image saving enabled
-    plotter = GraphPlotter(save_images=True)
-    print(f"📁 Saving images to: {plotter.output_dir}")
-    
-    # Show initial state
-    plotter.draw_base_graph(G, total_pieces, "Initial Network State")
-    
-    # Run simulation rounds
-    for round_num in range(1, rounds + 1):
-        result = simulate_round(G, total_pieces, seed)
-        
-        print(f"\n📊 Round {round_num}:")
-        print(f"   Requests: {result['total_requests']}")
-        print(f"   Fulfilled: {result['fulfilled_requests']}")
-        print(f"   Transfers: {result['total_transfers']}")
-        
-        if result['transfers']:
-            print("   Transfers:")
-            for transfer in result['transfers']:
-                print(f"     Piece {transfer['piece']}: {transfer['from']} → {transfer['to']}")
-        
-        if result['new_completions']:
-            print(f"   🎉 New completions: {result['new_completions']}")
-        
-        # Show visualization with transfers and save image
-        plotter.draw_with_transfers(G, total_pieces, result['transfers'], round_num)
-    
-    # Show final stats
-    final_stats = get_network_stats(G, total_pieces)
-    print(f"\n🏁 Final Results:")
-    print(f"   Completion rate: {final_stats['completion_rate']*100:.1f}%")
-    print(f"   Complete leechers: {final_stats['complete_leechers']}/{final_stats['leechers']}")
-    print(f"   Total pieces in network: {final_stats['total_pieces_in_network']}")
-    
-    return plotter.output_dir

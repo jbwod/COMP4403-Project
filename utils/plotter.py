@@ -38,7 +38,7 @@ class GraphPlotter:
         self.image_counter = 0
     
     def create_output_directory(self) -> str:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         output_dir = f"data/simulation_{timestamp}"
         os.makedirs(output_dir, exist_ok=True)
         return output_dir
@@ -52,7 +52,7 @@ class GraphPlotter:
             filename = f"graph_{self.image_counter:03d}.png"
         
         filepath = os.path.join(self.output_dir, filename)
-        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        plt.savefig(filepath, dpi=500, bbox_inches='tight')
         return filepath
     
     def get_node_colors(self, graph: nx.Graph, transfers: List[Dict] = None) -> List[str]:
@@ -107,7 +107,22 @@ class GraphPlotter:
                          ha='center', va='bottom', fontsize=8, 
                         bbox=dict(boxstyle='round,pad=0.2', facecolor='yellow', alpha=0.7))
     
-    def create_legend(self, graph: nx.Graph, show_transfers: bool = False):
+    def draw_request_labels(self, requests: List[Dict], pos: Dict):
+        """Draw request labels."""
+        for request in requests:
+            requester = request["requester"]
+            source = request["source"]
+            piece = request["piece"]
+            
+            if requester in pos and source in pos:
+                x1, y1 = pos[requester]
+                x2, y2 = pos[source]
+                                
+                plt.text((x1 + x2) / 2, (y1 + y2) / 2, f'R{piece}', 
+                         ha='center', va='top', fontsize=7, 
+                         bbox=dict(boxstyle='round,pad=0.2', facecolor='lightcoral', alpha=0.7))
+    
+    def create_legend(self, graph: nx.Graph, show_transfers: bool = False, show_requests: bool = False):
         """Create legend for the plot."""
         if not self.plot_config.show_legend or not any(graph.nodes(data=True)):
             return
@@ -121,6 +136,10 @@ class GraphPlotter:
         if show_transfers:
             handles.append(plt.Line2D([0], [0], color=self.transfer_config.arrow_color, 
                                     lw=self.transfer_config.arrow_width, label='Transfers'))
+        
+        if show_requests:
+            handles.append(plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='lightcoral', 
+                                    markersize=8, label='Requests'))
         
         plt.legend(handles=handles, title="Legend")
     
@@ -159,8 +178,9 @@ class GraphPlotter:
     
     def draw_with_transfers(self, graph: nx.Graph, total_pieces: Optional[int] = None, 
                           transfers: Optional[List[Dict]] = None, 
+                          requests: Optional[List[Dict]] = None,
                           round_num: Optional[int] = None) -> None:
-        """Draw graph with transfer visual."""
+        """Draw graph with transfer and request visual."""
         plt.figure(figsize=self.plot_config.figure_size)
         pos = self.get_node_positions(graph)
         node_colors = self.get_node_colors(graph, transfers)
@@ -172,11 +192,14 @@ class GraphPlotter:
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
         
+        if requests:
+            self.draw_request_labels(requests, pos)
+        
         if transfers:
             self.draw_transfer_arrows(transfers, pos)
         
         plt.title(self.create_title(round_num, transfers))
-        self.create_legend(graph, show_transfers=bool(transfers))
+        self.create_legend(graph, show_transfers=bool(transfers), show_requests=bool(requests))
         
         # Save if enabled
         if self.save_images:
@@ -194,7 +217,8 @@ def draw_graph(graph: nx.Graph, total_pieces: Optional[int] = None,
 
 def draw_graph_with_transfers(graph: nx.Graph, total_pieces: Optional[int] = None, 
                             transfers: Optional[List[Dict]] = None, 
+                            requests: Optional[List[Dict]] = None,
                             round_num: Optional[int] = None, 
                             save_images: bool = False) -> None:
     plotter = GraphPlotter(save_images=save_images)
-    plotter.draw_with_transfers(graph, total_pieces, transfers, round_num)
+    plotter.draw_with_transfers(graph, total_pieces, transfers, requests, round_num)
