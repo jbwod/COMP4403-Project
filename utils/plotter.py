@@ -85,7 +85,7 @@ class GraphPlotter:
             pieces = graph.nodes[node].get("file_pieces", set())
             num_pieces = len(pieces)
             x, y = pos[node]
-            plt.text(x, y + 0.15, f"{num_pieces}/{total_pieces}", 
+            plt.text(x, y + 0.1, f"{num_pieces}/{total_pieces}", 
                      ha='center', va='bottom', fontsize=8)
     
     def draw_transfer_arrows(self, transfers: List[Dict], pos: Dict):
@@ -152,16 +152,23 @@ class GraphPlotter:
             title += f" ({len(transfers)} transfers)"
         return title
     
-    def draw_base_graph(self, graph: nx.Graph, total_pieces: Optional[int] = None, 
+    def draw_base_graph(self, graph: nx.Graph, edge_labels: Optional[str] = None, total_pieces: Optional[int] = None, 
                        title: Optional[str] = None) -> None:
         """Draw the base graph without transfers."""
         plt.figure(figsize=self.plot_config.figure_size)
         pos = self.get_node_positions(graph)
         node_colors = self.get_node_colors(graph)
         
+        if edge_labels:
+            for (u, v), weight in edge_labels.items():
+                if graph.has_edge(u, v):
+                    graph[u][v]['weight'] = weight
+
         nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
                 node_color=node_colors, edge_color=self.plot_config.edge_color, 
                 node_size=self.plot_config.node_size)
+
+        nx.draw_networkx_edge_labels(graph, pos, edge_labels=edge_labels, font_size=8)
         
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
@@ -209,11 +216,11 @@ class GraphPlotter:
         
         plt.show()
 
-def draw_graph(graph: nx.Graph, total_pieces: Optional[int] = None, 
+def draw_graph(graph: nx.Graph, edge_labels: Optional[Dict[Tuple[int, int], float]] = None, total_pieces: Optional[int] = None, 
                save_images: bool = False) -> None:
     """Draws the given graph using matplotlib."""
     plotter = GraphPlotter(save_images=save_images)
-    plotter.draw_base_graph(graph, total_pieces)
+    plotter.draw_base_graph(graph, edge_labels=edge_labels, total_pieces=total_pieces)
 
 def draw_graph_with_transfers(graph: nx.Graph, total_pieces: Optional[int] = None, 
                             transfers: Optional[List[Dict]] = None, 

@@ -3,79 +3,76 @@ import random
 import networkx as nx
 from typing import Dict
 
-def erdos_renyi_graph(n: int, p: float) -> nx.Graph:
-    """ER Graph generator ensuring the graph is connected."""
-    while True:
-        G = nx.erdos_renyi_graph(n, p)
-        if nx.is_connected(G):
-            return G
-        
+class nxgraph:
+    def __init__(self):
+        self.graph = None
+        self.edge_info = {
+            "edge_ID": [],
+            "bandwidth_total": [],
+            "bandwidth_download": [],
+            "bandwidth_upload": [],
+            "node_1": [],
+            "node_2": []
+        }
 
+    def ER_graph(self, n: int, p: float) -> nx.Graph:
+        """ER Graph generator ensuring the graph is connected."""
+        print('Generating ER graph')
+        while True:
+            G = nx.erdos_renyi_graph(n, p)
+            if nx.is_connected(G):
+                self.graph = G
+                return G
 
-def BA_graph(nodes, edges, seed, weighted, r):
-    '''BA graph with weighted and unweighted edges. Random = true means randomly weighted edges'''
-    # Rule 1: download unit 1 ud = 1 MB/s, upload unit uu = r*ud for r<1. 
-    #         Total weight/bandwith ut = ud + uu = ud(1+r)
-    # Rule 2: We use ut for bandwith / weight of edges, and ut will be randomised and assigned directly.
+    def BA_graph(self, nodes: int, edges: int, seed: int, weighted: bool) -> nx.Graph:
+        """BA graph with optional weighted edges."""
+        print('Generating BA Graph')
+        # Rule 1: download unit 1 ud = 1 MB/s, upload unit uu = r*ud for r<1. 
+        #         Total weight/bandwith ut = ud + uu = ud(1+r)
+        # Rule 2: We use ut for bandwith / weight of edges, and ut will be randomised and assigned directly.
+        lower_ut = 5
+        upper_ut = 100
 
-    # Setting bounds
-    lower_ut = 5
-    uppder_ut = 100
+        G = nx.barabasi_albert_graph(n=nodes, m=edges, seed=seed)
 
-    # Generate le BA graph, unweighted
-    graph = nx.barabasi_albert_graph(n=nodes, m=edges, seed=seed)
+        if weighted:
+            for u, v in G.edges():
+                G[u][v]['weight'] = random.randint(lower_ut, upper_ut)
 
-    # modifying unweighted graph to weighted 
-    if weighted == True:
-        weights = lambda u, v: random.randint(lower_ut, uppder_ut)
-        for u,v in graph.edges():
-            graph[u][v]['weight'] = weights(u,v)
-        info = Get_edge_info(graph,True,r)
-        return graph, info
-    else:
-        info = Get_edge_info(graph,False,r)
-        return graph, info
+        self.graph = G
+        return G
 
-def Get_edge_info(graph, weighted,r):
-    # collect some info from any graph
-    edge_info = {
-                "edge_ID": [],
-                "bandwidth_total": [],
-                "bandwidth_download": [],
-                "bandwidth_upload": [],
-                "node_1": [],
-                "node_2": []
-                }
-    # syntax is, index = index of enumerated edges, 
-    #            node_1 = source node, 
-    #            node_2 = target node,
-    #            data = dictionary of edge attributes
-    for index, (node_1, node_2, data) in enumerate(graph.edges(data=True)):
-        bandwidth = data.get('weight', None)
+    def get_info(self, weighted: bool, r: float) -> Dict:
+        """Extract edge info from the graph."""
+        if self.graph is None:
+            raise ValueError("Graph has not been initialized.")
 
-        # Compute download/upload only if weighted
-        if weighted and bandwidth is not None:
-            download = round(bandwidth / (1 + r),1)
-            upload = bandwidth - download
-        else:
-            download = None
-            upload = None
+        for index, (node_1, node_2, data) in enumerate(self.graph.edges(data=True)):
+            bandwidth = data.get('weight', None)
 
-        # Append all info
-        edge_info["edge_ID"].append(index)
-        edge_info["bandwidth_total"].append(bandwidth)
-        edge_info["bandwidth_download"].append(download)
-        edge_info["bandwidth_upload"].append(upload)
-        edge_info["node_1"].append(node_1)
-        edge_info["node_2"].append(node_2)
-    return edge_info
+            if weighted and bandwidth is not None:
+                download = round(bandwidth / (1 + r), 1)
+                upload = round(bandwidth - download,1)
+            else:
+                download = None
+                upload = None
 
+            self.edge_info["edge_ID"].append(index)
+            self.edge_info["bandwidth_total"].append(bandwidth)
+            self.edge_info["bandwidth_download"].append(download)
+            self.edge_info["bandwidth_upload"].append(upload)
+            self.edge_info["node_1"].append(node_1)
+            self.edge_info["node_2"].append(node_2)
+
+        return self.edge_info
 
 ###################### All code below are for debugging, e.g. plotting graph for checking above code #################
 
 import matplotlib.pyplot as plt
-
-BAA, info = BA_graph(10, 2, 42, False,0.5)
+BAA = nxgraph()
+BAA.BA_graph(10, 2, 42, True)
+#BAA.ER_graph(20,0.1)
+info = BAA.get_info(True,0.5)
 print(info)
 
 def plot_graph_with_bandwidth(graph, edge_info):
@@ -104,5 +101,5 @@ def plot_graph_with_bandwidth(graph, edge_info):
     plt.tight_layout(pad=2.0)
     plt.show()
 
-plot_graph_with_bandwidth(BAA,info)
+plot_graph_with_bandwidth(BAA.graph,info)
 
