@@ -1,5 +1,5 @@
 import random
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from src.agent import update_agent_completion, agent_behavior, agent_upload_behavior
 from utils.plotter import GraphPlotter
@@ -11,17 +11,33 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None) -
     """
     Simo sending pieces to leechers
     """
+    # split up into request and response phases
+    request_result, response_result = simulate_split_rounds(G, total_pieces, seed)
+    
+    # Combine the results
+    return {
+        "transfers": response_result["transfers"],
+        "requests": request_result["requests"],
+        "new_completions": response_result["new_completions"],
+        "total_transfers": response_result["total_transfers"],
+        "total_requests": request_result["total_requests"],
+        "fulfilled_requests": response_result["fulfilled_requests"]
+    }
+
+
+def request_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None) -> Dict:
+    """
+    1. All agents make requests for pieces they need.
+    """
     rng = random.Random(seed)
-    transfers = []
-    new_completions = []
+    all_requests = []
     
     #(agents who need pieces)
-    all_requests = []
     for node in G.nodes():
         node_seed = rng.randint(1, 10000) if seed is not None else None
         actions = agent_behavior(G, node, total_pieces, node_seed)
         
-        # 1. Collect all requests
+        # Collect request from this agent
         for source, piece in actions["requests"]:
             all_requests.append({
                 "requester": node,
@@ -29,9 +45,23 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None) -
                 "piece": piece
             })
     
+    return {
+        "requests": all_requests,
+        "total_requests": len(all_requests)
+    }
+
+
+def response_round(G: nx.Graph, requests: List[Dict], total_pieces: int, seed: Optional[int] = None) -> Dict:
+    """
+    2. Process requests and do responses.
+    """
+    rng = random.Random(seed)
+    transfers = []
+    new_completions = []
+    
     # 2. Sort the requests from any Node
     requests_by_target = {}
-    for request in all_requests:
+    for request in requests:
         target = request["source"]
         if target not in requests_by_target:
             requests_by_target[target] = []
@@ -59,12 +89,20 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None) -
     
     return {
         "transfers": transfers,
-        "requests": all_requests,
         "new_completions": new_completions,
         "total_transfers": len(transfers),
-        "total_requests": len(all_requests),
         "fulfilled_requests": len(transfers)
     }
+
+
+def simulate_split_rounds(G: nx.Graph, total_pieces: int, seed: Optional[int] = None) -> Tuple[Dict, Dict]:
+    """
+    Run the round with seperate request and responses | better differentiation
+    """
+    request_result = request_round(G, total_pieces, seed)
+    response_result = response_round(G, request_result["requests"], total_pieces, seed)
+    
+    return request_result, response_result
 
 
 def get_network_stats(G: nx.Graph, total_pieces: int) -> Dict:

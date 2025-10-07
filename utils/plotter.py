@@ -28,11 +28,21 @@ class TransferConfig:
     label_bg_color: str = 'yellow'
     label_alpha: float = 0.7
 
+@dataclass
+class RequestConfig:
+    """Configuration for requests."""
+    arrow_color: str = 'orange'
+    arrow_width: int = 2
+    arrow_alpha: float = 0.7
+    label_bg_color: str = 'lightcoral'
+    label_alpha: float = 0.7
+
 class GraphPlotter:    
     def __init__(self, plot_config: PlotConfig = None, transfer_config: TransferConfig = None, 
-                 save_images: bool = False, output_dir: str = None):
+                 request_config: RequestConfig = None, save_images: bool = False, output_dir: str = None):
         self.plot_config = plot_config or PlotConfig()
         self.transfer_config = transfer_config or TransferConfig()
+        self.request_config = request_config or RequestConfig()
         self.save_images = save_images
         self.output_dir = output_dir or self.create_output_directory()
         self.image_counter = 0
@@ -101,13 +111,13 @@ class GraphPlotter:
                 
                 plt.arrow(x1, y1, x2 - x1, y2 - y1, 
                           color=self.transfer_config.arrow_color, 
-                          width=0.01, alpha=self.transfer_config.arrow_alpha, 
-                          length_includes_head=True, head_width=0.05)
+                          width=0.005, alpha=self.transfer_config.arrow_alpha, 
+                          length_includes_head=True, head_width=0.03)
                 plt.text((x1 + x2) / 2, (y1 + y2) / 2 + 0.05, f'P{piece}', 
                          ha='center', va='bottom', fontsize=8, 
                         bbox=dict(boxstyle='round,pad=0.2', facecolor='yellow', alpha=0.7))
     
-    def draw_request_labels(self, requests: List[Dict], pos: Dict):
+    def draw_request_arrows(self, requests: List[Dict], pos: Dict):
         """Draw request labels."""
         for request in requests:
             requester = request["requester"]
@@ -117,10 +127,18 @@ class GraphPlotter:
             if requester in pos and source in pos:
                 x1, y1 = pos[requester]
                 x2, y2 = pos[source]
-                                
-                plt.text((x1 + x2) / 2, (y1 + y2) / 2, f'R{piece}', 
-                         ha='center', va='top', fontsize=7, 
-                         bbox=dict(boxstyle='round,pad=0.2', facecolor='lightcoral', alpha=0.7))
+                plt.arrow(x1, y1, x2 - x1, y2 - y1, 
+                          color=self.request_config.arrow_color, 
+                          width=0.005, alpha=self.request_config.arrow_alpha, 
+                          length_includes_head=True, head_width=0.03)
+                plt.text((x1 + x2) / 2, (y1 + y2) / 2 + 0.05, f'R{piece}', 
+                         ha='center', va='bottom', fontsize=7, 
+                         bbox=dict(boxstyle='round,pad=0.2', facecolor=self.request_config.label_bg_color, 
+                                  alpha=self.request_config.label_alpha))
+
+    def draw_request_labels(self, requests: List[Dict], pos: Dict):
+        """Make sure this still calls the labels"""
+        self.draw_request_arrows(requests, pos)
     
     def create_legend(self, graph: nx.Graph, show_transfers: bool = False, show_requests: bool = False):
         """Create legend for the plot."""
@@ -138,8 +156,9 @@ class GraphPlotter:
                                     lw=self.transfer_config.arrow_width, label='Transfers'))
         
         if show_requests:
-            handles.append(plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='lightcoral', 
-                                    markersize=8, label='Requests'))
+            handles.append(plt.Line2D([0], [0], color=self.request_config.arrow_color, 
+                                    lw=self.request_config.arrow_width, 
+                                    label='Requests'))
         
         plt.legend(handles=handles, title="Legend")
     
@@ -215,6 +234,118 @@ class GraphPlotter:
             print(f"graph image: {saved_path}")
         
         plt.show()
+    
+    def draw_request_phase(self, graph: nx.Graph, requests: List[Dict], total_pieces: Optional[int] = None, 
+                          round_num: Optional[int] = None) -> None:
+        """Only the request phase."""
+        plt.figure(figsize=self.plot_config.figure_size)
+        pos = self.get_node_positions(graph)
+        node_colors = self.get_node_colors(graph)
+        
+        nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
+                node_color=node_colors, edge_color=self.plot_config.edge_color, 
+                node_size=self.plot_config.node_size)
+        
+        if total_pieces is not None:
+            self.draw_piece_counters(graph, pos, total_pieces)
+        
+        if requests:
+            self.draw_request_arrows(requests, pos)
+        
+        title = f"P2P Network - Round {round_num} - REQUEST PHASE" if round_num else "P2P Network - REQUEST PHASE"
+        if requests:
+            title += f" ({len(requests)} requests)"
+        plt.title(title)
+        self.create_legend(graph, show_transfers=False, show_requests=bool(requests))
+        
+        if self.save_images:
+            filename = f"round_{round_num:03d}_requests.png" if round_num is not None else None
+            saved_path = self.save_image(filename)
+            print(f"Request phase image: {saved_path}")
+        
+        plt.show()
+    
+    def draw_response_phase(self, graph: nx.Graph, transfers: List[Dict], total_pieces: Optional[int] = None, 
+                           round_num: Optional[int] = None) -> None:
+        """Only the response phase."""
+        plt.figure(figsize=self.plot_config.figure_size)
+        pos = self.get_node_positions(graph)
+        node_colors = self.get_node_colors(graph, transfers)
+        
+        nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
+                node_color=node_colors, edge_color=self.plot_config.edge_color, 
+                node_size=self.plot_config.node_size)
+        
+        if total_pieces is not None:
+            self.draw_piece_counters(graph, pos, total_pieces)
+        
+        if transfers:
+            self.draw_transfer_arrows(transfers, pos)
+        
+        title = f"P2P Network - Round {round_num} - RESPONSE PHASE" if round_num else "P2P Network - RESPONSE PHASE"
+        if transfers:
+            title += f" ({len(transfers)} transfers)"
+        plt.title(title)
+        self.create_legend(graph, show_transfers=bool(transfers), show_requests=False)
+        
+        if self.save_images:
+            filename = f"round_{round_num:03d}_responses.png" if round_num is not None else None
+            saved_path = self.save_image(filename)
+            print(f"Response phase image: {saved_path}")
+        
+        plt.show()
+    
+    def draw_split_round(self, graph: nx.Graph, requests: List[Dict], transfers: List[Dict], 
+                        total_pieces: Optional[int] = None, round_num: Optional[int] = None) -> None:
+        """Draw both request and response phases side by side."""
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
+        
+        pos = self.get_node_positions(graph)
+        node_colors = self.get_node_colors(graph, transfers)
+        
+        # Request phase (left)
+        plt.sca(ax1)
+        nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
+                node_color=node_colors, edge_color=self.plot_config.edge_color, 
+                node_size=self.plot_config.node_size)
+        
+        if total_pieces is not None:
+            self.draw_piece_counters(graph, pos, total_pieces)
+        
+        if requests:
+            self.draw_request_arrows(requests, pos)
+        
+        title1 = f"Round {round_num} | REQUEST PHASE" if round_num else "REQUEST PHASE"
+        if requests:
+            title1 += f" ({len(requests)} requests)"
+        plt.title(title1)
+        self.create_legend(graph, show_transfers=False, show_requests=bool(requests))
+        
+        # Response phase (right)
+        plt.sca(ax2)
+        nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
+                node_color=node_colors, edge_color=self.plot_config.edge_color, 
+                node_size=self.plot_config.node_size)
+        
+        if total_pieces is not None:
+            self.draw_piece_counters(graph, pos, total_pieces)
+        
+        if transfers:
+            self.draw_transfer_arrows(transfers, pos)
+        
+        title2 = f"Round {round_num} | RESPONSE PHASE" if round_num else "RESPONSE PHASE"
+        if transfers:
+            title2 += f" ({len(transfers)} transfers)"
+        plt.title(title2)
+        self.create_legend(graph, show_transfers=bool(transfers), show_requests=False)
+        
+        plt.tight_layout()
+        if self.save_images:
+            filename = f"round_{round_num:03d}_split.png" if round_num is not None else None
+            saved_path = self.save_image(filename)
+            print(f"Split round image: {saved_path}")
+        
+        plt.show()
 
 def draw_graph(graph: nx.Graph, edge_labels: Optional[Dict[Tuple[int, int], float]] = None, total_pieces: Optional[int] = None, 
                save_images: bool = False) -> None:
@@ -229,3 +360,22 @@ def draw_graph_with_transfers(graph: nx.Graph, total_pieces: Optional[int] = Non
                             save_images: bool = False) -> None:
     plotter = GraphPlotter(save_images=save_images)
     plotter.draw_with_transfers(graph, total_pieces, transfers, requests, round_num)
+
+def draw_request_phase(graph: nx.Graph, requests: List[Dict], total_pieces: Optional[int] = None, 
+                      round_num: Optional[int] = None, save_images: bool = False) -> None:
+    """Graph of the request phase."""
+    plotter = GraphPlotter(save_images=save_images)
+    plotter.draw_request_phase(graph, requests, total_pieces, round_num)
+
+def draw_response_phase(graph: nx.Graph, transfers: List[Dict], total_pieces: Optional[int] = None, 
+                       round_num: Optional[int] = None, save_images: bool = False) -> None:
+    """Graph opf the response phase."""
+    plotter = GraphPlotter(save_images=save_images)
+    plotter.draw_response_phase(graph, transfers, total_pieces, round_num)
+
+def draw_split_round(graph: nx.Graph, requests: List[Dict], transfers: List[Dict], 
+                    total_pieces: Optional[int] = None, round_num: Optional[int] = None, 
+                    save_images: bool = False) -> None:
+    """Draw both request and response phases side by side."""
+    plotter = GraphPlotter(save_images=save_images)
+    plotter.draw_split_round(graph, requests, transfers, total_pieces, round_num)
