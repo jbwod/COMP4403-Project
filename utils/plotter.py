@@ -182,12 +182,24 @@ class GraphPlotter:
             for (u, v), weight in edge_labels.items():
                 if graph.has_edge(u, v):
                     graph[u][v]['weight'] = weight
+        
+        auto_edge_labels = None
+        if edge_labels is None:
+            labels = {}
+            has_any_weight = False
+            for u, v, data in graph.edges(data=True):
+                w = data.get('weight')
+                if w is not None:
+                    has_any_weight = True
+                    labels[(u, v)] = f"w:{w}"
+            if has_any_weight:
+                auto_edge_labels = labels
 
         nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
                 node_color=node_colors, edge_color=self.plot_config.edge_color, 
                 node_size=self.plot_config.node_size)
 
-        nx.draw_networkx_edge_labels(graph, pos, edge_labels=edge_labels, font_size=8)
+        nx.draw_networkx_edge_labels(graph, pos, edge_labels=(edge_labels or auto_edge_labels), font_size=8)
         
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
