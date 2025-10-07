@@ -1,10 +1,12 @@
-## Simulating and Modelling Resilient P2Peer Transfer & Distribution Networks
-This project provides a simulation framework for resilient peer-to-peer (P2P) file transfer and distribution networks. It models network behavior, node interactions, and fault tolerance mechanisms to study the robustness of P2P systems.
+## Modelling Resilient BitTorrent-like P2P File Transfer Networks
+This project provides a simulation framework for resilient BitTorrent-like peer-to-peer (P2P) file transfer and distribution networks. It models network behavior, agent interactions, and fault tolerance mechanisms to study the robustness of P2P systems as a complex system.
 
 ### Features
 
 - Simulates P2P network topologies and client roles
+    Seeder | Leecher | Freerider | Tracker
 - Models node failures and recovery
+- Dynamic Connection and Graph re-organisation.
 - Analyses data distribution efficiency and emergent features
 
 ### Getting Started
@@ -17,4 +19,4 @@ This project provides a simulation framework for resilient peer-to-peer (P2P) fi
     ```bash
     pip install -r requirements.txt
     ```
-3. Run the simulation.
+3. Run the simulation in the included Jupyter Notebook.
