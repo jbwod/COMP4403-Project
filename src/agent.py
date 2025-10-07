@@ -38,7 +38,7 @@ class Agent:
     
     def decide_requests(self, neighbors: List[int], graph: nx.Graph, total_pieces: int, 
                        current_downloads: int, rng: random.Random) -> List[Tuple[int, int]]:
-        """Decide which pieces to request from which neighbors."""
+        """Decide which pieces to request from which neighbors based on link quality."""
         if self.agent_type != AgentType.LEECHER or not self.can_download(current_downloads):
             return []
         
@@ -55,34 +55,61 @@ class Agent:
             neighbor_pieces = graph.nodes[neighbor].get("file_pieces", set())
             available_pieces = neighbor_pieces & needed_pieces
             if available_pieces:
-                potential_sources.append((neighbor, available_pieces))
+                # Get link quality between this node and next
+                link_quality = self.get_link_quality(graph, neighbor)
+                potential_sources.append((neighbor, available_pieces, link_quality))
         
-        # TODO: Instead of Random, maybe use a more intelligent algorithm
-        for source, available_pieces in potential_sources:
+        # Sort by link quality and prefer better connections
+        potential_sources.sort(key=lambda x: x[2], reverse=True)
+        
+        # Select requests based on link quality and availability
+        for source, available_pieces, link_quality in potential_sources:
             if len(requests) >= remaining_capacity:
                 break
-            piece = rng.choice(list(available_pieces))
-            requests.append((source, piece))
-            needed_pieces.discard(piece)
+            
+            # Higher quality links have better chance of being selected
+            # This simulates agents preferring better connections
+            # arbitrarily set a threshold for selection based on link quality
+            if rng.random() < min(0.8, 0.3 + (link_quality / 100.0)):
+                piece = rng.choice(list(available_pieces))
+                requests.append((source, piece))
+                needed_pieces.discard(piece)
         
         return requests
     
+    def get_link_quality(self, graph: nx.Graph, neighbor: int) -> float:
+        """Get the bandwidth between this node and neighbor."""
+        if graph.has_edge(self.node_id, neighbor):
+            return graph[self.node_id][neighbor].get('weight', 50.0)  # Default to 50 if no weight
+        return 0.0  # No direct connection
+    
     def decide_uploads(self, incoming_requests: List[Tuple[int, int]], graph: nx.Graph,
                       current_uploads: int, rng: random.Random) -> List[Tuple[int, int]]:
-        """Decide which requests to fulfill based on available capacity and pieces."""
+        """Decide which requests to fulfill based on link quality and available capacity."""
         if not self.can_upload(current_uploads) or not incoming_requests:
             return []
         
         uploads = []
         remaining_capacity = self.upload_capacity - current_uploads
-        rng.shuffle(incoming_requests)
         
+        # Simulates seeders preferring to serve better connections
+        requests_with_quality = []
         for requester, piece in incoming_requests:
+            if piece in self.file_pieces:  # Only consider requests for pieces we have
+                link_quality = self.get_link_quality(graph, requester)
+                requests_with_quality.append((requester, piece, link_quality))
+        
+        # Sort by link quality - prefer better connections
+        requests_with_quality.sort(key=lambda x: x[2], reverse=True)
+        
+        # Select uploads based on link quality and capacity
+        for requester, piece, link_quality in requests_with_quality:
             if len(uploads) >= remaining_capacity:
                 break
             
-            # Check if we have this piece
-            if piece in self.file_pieces:
+            # Higher quality links have better chance of being served
+            success_prob = min(0.9, 0.4 + (link_quality / 100.0))
+            if rng.random() < success_prob:
                 uploads.append((requester, piece))
         
         return uploads
