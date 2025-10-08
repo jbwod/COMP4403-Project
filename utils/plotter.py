@@ -476,10 +476,10 @@ def start_new_run() -> str:
 def create_gif_from_run(output_dir: str = None, gif_name: str = "simulation.gif", 
                        duration: int = 1000, pattern: str = "*.png") -> str:
     """Create a GIF from all PNG images in the output directory."""
-    global _current_run_output_dir
+    global current_run_output_dir
     
     if output_dir is None:
-        output_dir = _current_run_output_dir
+        output_dir = current_run_output_dir
     
     if output_dir is None:
         raise ValueError("No output directory specified and no current run active")
