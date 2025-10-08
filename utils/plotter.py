@@ -83,6 +83,39 @@ class GraphPlotter:
         """Get node positions using spring."""
         return nx.spring_layout(graph, seed=self.plot_config.layout_seed)
     
+    def draw_weighted_graph(self, graph: nx.Graph, pos: Dict, node_colors: List[str], 
+                           show_labels: bool = None) -> None:
+        """Helper to draw a graph with edge thickness based on weights/bandwidth."""
+        if show_labels is None:
+            show_labels = self.plot_config.show_labels
+            
+        edges = graph.edges()
+        if edges:
+            edge_weights = []
+            for u, v in edges:
+                weight = graph[u][v].get('weight', 50.0)  # Default weight
+                edge_weights.append(weight)
+            
+            # Normalized widths for scale and visibility
+            if edge_weights:
+                min_weight = min(edge_weights)
+                max_weight = max(edge_weights)
+                if max_weight > min_weight:
+                    normalized_weights = [(w - min_weight) / (max_weight - min_weight) * 7 + 1 for w in edge_weights]
+                else:
+                    normalized_weights = [2.0] * len(edge_weights)
+            else:
+                normalized_weights = [2.0] * len(edges)
+ 
+            nx.draw_networkx_edges(graph, pos, edge_color=self.plot_config.edge_color, 
+                                 width=normalized_weights, alpha=0.7)
+        
+        nx.draw_networkx_nodes(graph, pos, node_color=node_colors, 
+                              node_size=self.plot_config.node_size)
+ 
+        if show_labels:
+            nx.draw_networkx_labels(graph, pos)
+    
     def draw_piece_counters(self, graph: nx.Graph, pos: Dict, total_pieces: int):
         """Draw piece counters above nodes."""
         for node in graph.nodes():
@@ -170,9 +203,8 @@ class GraphPlotter:
             if has_any_weight:
                 auto_edge_labels = labels
 
-        nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
-                node_color=node_colors, edge_color=self.plot_config.edge_color, 
-                node_size=self.plot_config.node_size)
+        # Draw graph with weighted edges
+        self.draw_weighted_graph(graph, pos, node_colors)
 
         nx.draw_networkx_edge_labels(graph, pos, edge_labels=(edge_labels or auto_edge_labels), font_size=8)
         
@@ -265,10 +297,8 @@ class GraphPlotter:
         pos = self.get_node_positions(graph)
         node_colors = self.get_node_colors(graph, transfers)
         
-        # Draw base graph
-        nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
-                node_color=node_colors, edge_color=self.plot_config.edge_color, 
-                node_size=self.plot_config.node_size)
+        # Draw base graph with weighted edges
+        self.draw_weighted_graph(graph, pos, node_colors)
         
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
@@ -328,11 +358,9 @@ class GraphPlotter:
         ax1 = axes[0]
         plt.sca(ax1)
         
-        # Draw base graph
+        # Draw base graph with weighted edges
         node_colors = self.get_node_colors(graph)
-        nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
-                node_color=node_colors, edge_color=self.plot_config.edge_color, 
-                node_size=self.plot_config.node_size)
+        self.draw_weighted_graph(graph, pos, node_colors)
         
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
@@ -349,10 +377,8 @@ class GraphPlotter:
         ax2 = axes[1]
         plt.sca(ax2)
         
-        # Draw base graph
-        nx.draw(graph, pos, with_labels=self.plot_config.show_labels, 
-                node_color=node_colors, edge_color=self.plot_config.edge_color, 
-                node_size=self.plot_config.node_size)
+        # Draw base graph with weighted edges
+        self.draw_weighted_graph(graph, pos, node_colors)
         
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
