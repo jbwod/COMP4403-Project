@@ -8,11 +8,26 @@ import networkx as nx
 
 
 
-def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True) -> Dict:
+def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", K: int = 3, ttl: int = 5, max_searches_per_round: int = 3) -> Dict:
     """
     Main simulation function - step-by-step: queries, hits, transfers.
+    
+    Args:
+        G: NetworkX graph
+        total_pieces: Total number of file pieces
+        seed: Random seed for reproducibility
+        single_agent: Force only this agent to search (if specified)
+        cleanup_completed_queries: Whether to clean up completed queries
+        search_mode: Search initiation mode
+        K: Number of neighbors to forward queries to
+        ttl: Time-to-live for queries (number of hops)
+        max_searches_per_round: Maximum concurrent searches (for limited mode)
+    
+    search_mode options:
+    - "single": Only one (random) node searches per round
+    - "realistic": Each agent decides independently
     """
-    return simulate_step_by_step_round(G, total_pieces, K=3, ttl=5, max_searches_per_round=3, seed=seed, single_agent=single_agent, cleanup_completed_queries=cleanup_completed_queries)
+    return simulate_step_by_step_round(G, total_pieces, K=K, ttl=ttl, max_searches_per_round=max_searches_per_round, seed=seed, single_agent=single_agent, cleanup_completed_queries=cleanup_completed_queries, search_mode=search_mode)
 
 # Global vars between rounds to hold the currently pending
 pending_queries = []
@@ -38,7 +53,7 @@ def clean_completed_queries(G: nx.Graph, completed_query_uuids: set) -> None:
             for query_uuid in completed_query_uuids:
                 agent.query_routing.pop(query_uuid, None)
 
-def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True) -> Dict:
+def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic") -> Dict:
     global pending_queries, pending_hits
 
     if seed is not None:
@@ -51,58 +66,79 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
     
     # Select an agent to initiate a search
     agent_actions = {}
-    search_initiator = None
+    search_initiators = []
     
-    # All leechers needing pieces
-    leechers_needing_pieces = []
-    for node in G.nodes():
+    if search_mode == "single":
+        # Original single-node (One node starts a new search each round)
+        leechers_needing_pieces = []
+        for node in G.nodes():
+            agent = G.nodes[node].get("agent_object")
+            if not agent or agent.agent_type.value not in ["leecher", "hybrid"]:
+                continue
+            
+            agent.file_pieces = G.nodes[node].get("file_pieces", set())
+            needed_pieces = agent.get_needed_pieces(total_pieces)
+            if needed_pieces:
+                leechers_needing_pieces.append(node)
+        
+        if leechers_needing_pieces:
+            if single_agent is not None and single_agent in leechers_needing_pieces:
+                search_initiators = [single_agent]
+            else:
+                search_initiators = [rng.choice(leechers_needing_pieces)]
+    
+    elif search_mode == "realistic":
+        # Each agent decides independently if they should search.
+        for node in G.nodes():
+            agent = G.nodes[node].get("agent_object")
+            if not agent:
+                agent_actions[node] = {"initiate_search": None, "respond_to_queries": [], "transfers": []}
+                continue
+            
+            # Sync state
+            agent.file_pieces = G.nodes[node].get("file_pieces", set())
+            agent.is_complete = G.nodes[node].get("is_complete", False)
+            
+            # Let each agent decide
+            if single_agent is not None and node != single_agent:
+                agent_actions[node] = {"initiate_search": None, "respond_to_queries": [], "transfers": []}
+            else:
+                gossip_actions = agent.decide_gossip_actions(G, total_pieces, rng, K, ttl)
+                agent_actions[node] = gossip_actions
+                
+                if gossip_actions["initiate_search"]:
+                    search_initiators.append(node)
+    
+    # Process search initiators
+    for node in search_initiators:
         agent = G.nodes[node].get("agent_object")
-        if not agent or agent.agent_type.value not in ["leecher", "hybrid"]:
-            continue
-        
-        # Sync state
-        agent.file_pieces = G.nodes[node].get("file_pieces", set())
-        needed_pieces = agent.get_needed_pieces(total_pieces)
-        if needed_pieces:
-            leechers_needing_pieces.append(node)
-    
-    # If single_agent, only that agent can initiate a search
-    if leechers_needing_pieces:
-        if single_agent is not None and single_agent in leechers_needing_pieces:
-            # Use the specified single agent
-            search_initiator = single_agent
-        else:
-            # Use random selection
-            search_initiator = rng.choice(leechers_needing_pieces)
-        agent = G.nodes[search_initiator].get("agent_object")
-        
-        # Get needed pieces and select one via agent selection logic.
         needed_pieces = agent.get_needed_pieces(total_pieces)
         if needed_pieces:
             piece = rng.choice(list(needed_pieces))
             search_result = agent.initiate_gossip_query(piece, ttl, K, G, rng)
             
-            # Create only ONE initial query
             if search_result["forwards"]:
-                target = search_result["forwards"][0]
-                message = {
-                    "type": "query",
-                    "query_uuid": search_result["query_uuid"],
-                    "piece": search_result["piece"],
-                    "ttl": search_result["ttl"],
-                    "K": K,
-                    "from_node": search_initiator,
-                    "to_node": target,
-                    "origin": search_initiator
-                }
-                pending_queries.append(message)
+                # Create initial queries (not just ONE)
+                for target in search_result["forwards"]:
+                    message = {
+                        "type": "query",
+                        "query_uuid": search_result["query_uuid"],
+                        "piece": search_result["piece"],
+                        "ttl": search_result["ttl"],
+                        "K": K,
+                        "from_node": node,
+                        "to_node": target,
+                        "origin": node
+                    }
+                    pending_queries.append(message)
             
-            agent_actions[search_initiator] = {"initiate_search": search_result}
+            agent_actions[node] = {"initiate_search": search_result}
     
-    # Set empty actions for all other nodes
+    # Set empty actions for all other non-searching nodes
     for node in G.nodes():
-        if node != search_initiator:
-            agent_actions[node] = {"initiate_search": None, "respond_to_queries": [], "transfers": []}
+        if node not in search_initiators:
+            if node not in agent_actions:
+                agent_actions[node] = {"initiate_search": None, "respond_to_queries": [], "transfers": []}
     
     # 1. Process pending queries (one hop)
     current_queries = pending_queries.copy()
@@ -275,6 +311,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
         "total_transfers": len(all_transfers), # Total transfers this round
         "message_rounds": message_rounds, # Messages grouped by type
         "agent_actions": agent_actions, # Actions taken by each agent this round
-        "search_initiator": search_initiator # The agent who initiated the search this round (if any)
+        "search_initiators": search_initiators, # All agents who initiated searches this round
+        "num_searchers": len(search_initiators) # Number of agents that searched this round
     }
 
