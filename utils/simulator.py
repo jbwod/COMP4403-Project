@@ -18,7 +18,7 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, s
 pending_queries = []
 pending_hits = []
 
-def cleanup_completed_queries(G: nx.Graph, completed_query_uuids: set) -> None:
+def clean_completed_queries(G: nx.Graph, completed_query_uuids: set) -> None:
     """Optionally clean up completed queries from pending lists and agent states from the simulation to make it look cleaner."""
     global pending_queries, pending_hits
     
@@ -204,7 +204,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
     # Clean up completed queries if enabled for cleaner graph
     if cleanup_completed_queries and all_transfers:
         completed_query_uuids = {transfer["query_uuid"] for transfer in all_transfers}
-        cleanup_completed_queries(G, completed_query_uuids)
+        clean_completed_queries(G, completed_query_uuids)
     
     # debug
     for query in current_queries:
