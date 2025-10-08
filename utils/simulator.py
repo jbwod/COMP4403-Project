@@ -8,17 +8,37 @@ import networkx as nx
 
 
 
-def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, single_agent: Optional[int] = None) -> Dict:
+def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True) -> Dict:
     """
     Main simulation function - step-by-step: queries, hits, transfers.
     """
-    return simulate_step_by_step_round(G, total_pieces, K=3, ttl=5, max_searches_per_round=3, seed=seed, single_agent=single_agent)
+    return simulate_step_by_step_round(G, total_pieces, K=3, ttl=5, max_searches_per_round=3, seed=seed, single_agent=single_agent, cleanup_completed_queries=cleanup_completed_queries)
 
 # Global vars between rounds to hold the currently pending
 pending_queries = []
 pending_hits = []
 
-def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, seed: Optional[int] = None, single_agent: Optional[int] = None) -> Dict:
+def cleanup_completed_queries(G: nx.Graph, completed_query_uuids: set) -> None:
+    """Optionally clean up completed queries from pending lists and agent states from the simulation to make it look cleaner."""
+    global pending_queries, pending_hits
+    
+    # Remove completed queries from pending
+    pending_queries[:] = [q for q in pending_queries if q["query_uuid"] not in completed_query_uuids]
+    
+    # Remove completed hits from pending
+    pending_hits[:] = [h for h in pending_hits if h["query_uuid"] not in completed_query_uuids]
+    
+    # Clean up agent
+    for node in G.nodes():
+        agent = G.nodes[node].get("agent_object")
+        if agent:
+            # Remove completed queries from seen_queries
+            agent.seen_queries -= completed_query_uuids
+            # Remove completed queries from routing
+            for query_uuid in completed_query_uuids:
+                agent.query_routing.pop(query_uuid, None)
+
+def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True) -> Dict:
     global pending_queries, pending_hits
 
     if seed is not None:
@@ -149,9 +169,21 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
                 }
                 pending_hits.append(next_hit)  # Add to pending for next round
     
-    # 3. Create a transfer, happen same tick as hits (immediate when hits reach origin)
+    # 3. Create transfers, preventing duplicates for the same piece to the same node
+    processed_transfers = set()
+    
     for hit in current_hits:
         if hit["to_node"] == hit["origin"]:  # Hit reached origin
+            # Did we already have a transfer?
+            transfer_key = (hit["to_node"], hit["piece"])
+            if transfer_key in processed_transfers:
+                continue  # Skip
+            
+            # Check if the origin already has this piece
+            origin_pieces = G.nodes[hit["to_node"]].get("file_pieces", set())
+            if hit["piece"] in origin_pieces:
+                continue  # Skip
+            
             # Create transfer
             transfer = {
                 "from": hit["hit_node"],
@@ -160,6 +192,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
                 "query_uuid": hit["query_uuid"]
             }
             all_transfers.append(transfer)
+            processed_transfers.add(transfer_key)
             
             # Grant the piece (simulate the transfer)
             G.nodes[transfer["to"]].setdefault("file_pieces", set()).add(transfer["piece"])
@@ -167,6 +200,11 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
             # Check for completion
             if update_agent_completion(G, transfer["to"], total_pieces):
                 new_completions.append(transfer["to"])
+    
+    # Clean up completed queries if enabled for cleaner graph
+    if cleanup_completed_queries and all_transfers:
+        completed_query_uuids = {transfer["query_uuid"] for transfer in all_transfers}
+        cleanup_completed_queries(G, completed_query_uuids)
     
     # debug
     for query in current_queries:
