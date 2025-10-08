@@ -4,11 +4,15 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 import os
 from datetime import datetime
+from PIL import Image
+import glob
 
 
 ROLES = {"seeder": "blue", "leecher": "green", "hybrid": "purple"}
 DEFAULT_FIGURE_SIZE = (10, 8)
 DEFAULT_LAYOUT_SEED = 42
+
+current_run_output_dir = None
 
 @dataclass
 class PlotConfig:
@@ -35,10 +39,15 @@ class GossipConfig:
 class GraphPlotter:    
     def __init__(self, plot_config: PlotConfig = None, gossip_config: GossipConfig = None,
                  save_images: bool = False, output_dir: str = None):
+        global current_run_output_dir
         self.plot_config = plot_config or PlotConfig()
         self.gossip_config = gossip_config or GossipConfig()
         self.save_images = save_images
-        self.output_dir = output_dir or self.create_output_directory()
+        
+        # Use output if provided, otherwise make one
+        if current_run_output_dir is None:
+            current_run_output_dir = self.create_output_directory()
+        self.output_dir = output_dir or current_run_output_dir
         self.image_counter = 0
     
     def create_output_directory(self) -> str:
@@ -455,3 +464,61 @@ def draw_gossip_step_by_step(graph: nx.Graph, message_rounds: List[List[Dict]],
     """Draw step-by-step visualization: queries (step 1), hits (step 2), transfers (step 3)."""
     plotter = GraphPlotter(save_images=save_images)
     plotter.draw_gossip_step_by_step(graph, message_rounds, transfers, total_pieces, round_num)
+
+def start_new_run() -> str:
+    """Start a new simulation run with a fresh output directory."""
+    global current_run_output_dir
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    current_run_output_dir = f"data/simulation_{timestamp}"
+    os.makedirs(current_run_output_dir, exist_ok=True)
+    return current_run_output_dir
+
+def create_gif_from_run(output_dir: str = None, gif_name: str = "simulation.gif", 
+                       duration: int = 1000, pattern: str = "*.png") -> str:
+    """Create a GIF from all PNG images in the output directory."""
+    global _current_run_output_dir
+    
+    if output_dir is None:
+        output_dir = _current_run_output_dir
+    
+    if output_dir is None:
+        raise ValueError("No output directory specified and no current run active")
+
+    search_pattern = os.path.join(output_dir, pattern)
+    image_files = sorted(glob.glob(search_pattern))
+    
+    if not image_files:
+        print(f"No PNG files found in {output_dir}")
+        return None
+    
+    print(f"Found {len(image_files)} images to compile into GIF")
+
+    images = []
+    for file_path in image_files:
+        try:
+            img = Image.open(file_path)
+            images.append(img)
+        except Exception as e:
+            print(f"Error loading {file_path}: {e}")
+    
+    if not images:
+        print("No valid images found")
+        return None
+    
+    # Create GIF
+    gif_path = os.path.join(output_dir, gif_name)
+    images[0].save(
+        gif_path,
+        save_all=True,
+        append_images=images[1:],
+        duration=duration,
+        loop=0
+    )
+    
+    print(f"GIF created: {gif_path}")
+    return gif_path
+
+def create_round_gif(output_dir: str = None, gif_name: str = "rounds.gif", 
+                    duration: int = 1000) -> str:
+    """Create a GIF from round images (round_XXX_gossip_steps.png)."""
+    return create_gif_from_run(output_dir, gif_name, duration, "round_*_gossip_steps.png")
