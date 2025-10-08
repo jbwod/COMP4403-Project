@@ -96,14 +96,17 @@ class Agent:
             response["forwards"] = result["forwards"]
             response["hit"] = result["hit"]
             
-            # "If we have the piece", create a transfer
+            # "If we have the piece", create a transfer (but check for duplicates)
             if result["hit"] is not None:
-                response["transfer"] = {
-                    "from": self.node_id,
-                    "to": message["origin"],
-                    "piece": message["piece"],
-                    "query_uuid": message["query_uuid"]
-                }
+                # Check if the origin already has this piece to prevent unnecessary transfers
+                origin_pieces = graph.nodes[message["origin"]].get("file_pieces", set())
+                if message["piece"] not in origin_pieces:
+                    response["transfer"] = {
+                        "from": self.node_id,
+                        "to": message["origin"],
+                        "piece": message["piece"],
+                        "query_uuid": message["query_uuid"]
+                    }
         
         elif message["type"] == "hit":
             # Process QueryHit response
