@@ -298,53 +298,7 @@ class GraphPlotter:
                 bbox=dict(boxstyle="round,pad=0.3", facecolor=self.gossip_config.label_bg_color,
                          alpha=self.gossip_config.label_alpha, edgecolor=self.gossip_config.hit_color),
                 ha='center', va='center', fontsize=8, fontweight='bold')
-    
-    def draw_gossip_round(self, graph: nx.Graph, messages: List[Dict], transfers: List[Dict],
-                         total_pieces: Optional[int] = None, round_num: Optional[int] = None) -> None:
-        """Draw a complete gossip round with messages and transfers."""
-        plt.figure(figsize=self.plot_config.figure_size)
-        pos = self.get_node_positions(graph)
-        node_colors = self.get_node_colors(graph, transfers)
-        
-        # Draw base graph with weighted edges
-        self.draw_weighted_graph(graph, pos, node_colors)
-        
-        if total_pieces is not None:
-            self.draw_piece_counters(graph, pos, total_pieces)
-        
-        # Draw gossip messages
-        if messages:
-            self.draw_gossip_messages(graph, messages, pos)
-        
-        # Draw transfer lines for successful queries
-        if transfers:
-            for transfer in transfers:
-                self.draw_gossip_transfer_line(
-                    transfer["from"], 
-                    transfer["to"], 
-                    transfer["piece"], 
-                    pos,
-                    transfer.get("query_uuid")
-                )
-        
-        title = f"Round {round_num} | Gossip" if round_num else "Gossip"
-        if messages:
-            query_count = len([m for m in messages if m["type"] == "query"])
-            hit_count = len([m for m in messages if m["type"] == "hit"])
-            title += f" ({query_count} queries, {hit_count} hits)"
-        if transfers:
-            title += f" ({len(transfers)} transfers)"
-        
-        plt.title(title)
-        self.create_legend(graph, show_gossip=True)
-        
-        if self.save_images:
-            filename = f"round_{round_num:03d}_gossip.png" if round_num is not None else None
-            saved_path = self.save_image(filename)
-            print(f"Gossip round image: {saved_path}")
-        
-        plt.show()
-    
+
   
     
     def draw_gossip_step_by_step(self, graph: nx.Graph, message_rounds: List[List[Dict]], 
@@ -443,13 +397,6 @@ def draw_graph(graph: nx.Graph, edge_labels: Optional[Dict[Tuple[int, int], floa
     plotter = GraphPlotter(save_images=save_images)
     plotter.draw_base_graph(graph, edge_labels=edge_labels, total_pieces=total_pieces)
 
-
-def draw_gossip_round(graph: nx.Graph, messages: List[Dict], transfers: List[Dict],
-                     total_pieces: Optional[int] = None, round_num: Optional[int] = None, 
-                     save_images: bool = False) -> None:
-    """Draw a complete gossip round with messages and transfers."""
-    plotter = GraphPlotter(save_images=save_images)
-    plotter.draw_gossip_round(graph, messages, transfers, total_pieces, round_num)
 
 
 def draw_gossip_flow(graph: nx.Graph, search_result: Dict, total_pieces: Optional[int] = None, 
