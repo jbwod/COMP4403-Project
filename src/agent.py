@@ -425,7 +425,7 @@ def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> boo
 def agent_gossip_behavior(G: nx.Graph, node_id: int, total_pieces: int, K: int = 3, ttl: int = 5, 
                           seed: Optional[int] = None) -> Dict:
     """
-    Agent Query/QueryHit Behavior using gossip protocol.
+    Agent Query/QueryHit Behavior using Gossip.
     """
     rng = random.Random(seed)
     actions = {
