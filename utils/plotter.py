@@ -65,7 +65,7 @@ class GraphPlotter:
             filename = f"graph_{self.image_counter:03d}.png"
         
         filepath = os.path.join(self.output_dir, filename)
-        plt.savefig(filepath, dpi=500, bbox_inches='tight')
+        plt.savefig(filepath, dpi=250, bbox_inches='tight')
         return filepath
     
     def get_node_colors(self, graph: nx.Graph, transfers: List[Dict] = None) -> List[str]:
@@ -520,5 +520,5 @@ def create_gif_from_run(output_dir: str = None, gif_name: str = "simulation.gif"
 
 def create_round_gif(output_dir: str = None, gif_name: str = "rounds.gif", 
                     duration: int = 1000) -> str:
-    """Create a GIF from round images (round_XXX_gossip_steps.png)."""
+    """Create a GIF from round images."""
     return create_gif_from_run(output_dir, gif_name, duration, "round_*_gossip_steps.png")
