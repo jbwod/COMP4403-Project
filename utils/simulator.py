@@ -8,7 +8,7 @@ import networkx as nx
 
 
 
-def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", K: int = 3, ttl: int = 5, max_searches_per_round: int = 3) -> Dict:
+def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, current_round: int = 0) -> Dict:
     """
     Main simulation function - step-by-step: queries, hits, transfers.
     
@@ -22,12 +22,13 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, s
         K: Number of neighbors to forward queries to
         ttl: Time-to-live for queries (number of hops)
         max_searches_per_round: Maximum concurrent searches (for limited mode)
+        current_round: The current round number (for retry tracking)
     
     search_mode options:
     - "single": Only one (random) node searches per round
     - "realistic": Each agent decides independently
     """
-    return simulate_step_by_step_round(G, total_pieces, K=K, ttl=ttl, max_searches_per_round=max_searches_per_round, seed=seed, single_agent=single_agent, cleanup_completed_queries=cleanup_completed_queries, search_mode=search_mode)
+    return simulate_step_by_step_round(G, total_pieces, K=K, ttl=ttl, max_searches_per_round=max_searches_per_round, seed=seed, single_agent=single_agent, cleanup_completed_queries=cleanup_completed_queries, search_mode=search_mode, current_round=current_round)
 
 # Global vars between rounds to hold the currently pending
 pending_queries = []
@@ -53,7 +54,7 @@ def clean_completed_queries(G: nx.Graph, completed_query_uuids: set) -> None:
             for query_uuid in completed_query_uuids:
                 agent.query_routing.pop(query_uuid, None)
 
-def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic") -> Dict:
+def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", current_round: int = 0) -> Dict:
     global pending_queries, pending_hits
 
     if seed is not None:
@@ -103,7 +104,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
             if single_agent is not None and node != single_agent:
                 agent_actions[node] = {"initiate_search": None, "respond_to_queries": [], "transfers": []}
             else:
-                gossip_actions = agent.decide_gossip_actions(G, total_pieces, rng, K, ttl)
+                gossip_actions = agent.decide_gossip_actions(G, total_pieces, rng, K, ttl, current_round)
                 agent_actions[node] = gossip_actions
                 
                 if gossip_actions["initiate_search"]:
@@ -236,6 +237,11 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
             # Check for completion
             if update_agent_completion(G, transfer["to"], total_pieces):
                 new_completions.append(transfer["to"])
+            
+            # Clean up search tracking for the piece that was just found
+            agent = G.nodes[transfer["to"]].get("agent_object")
+            if agent:
+                agent.clear_found_pieces()
     
     # Clean up completed queries if enabled for cleaner graph
     if cleanup_completed_queries and all_transfers:
@@ -298,6 +304,8 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
     for node in G.nodes():
         agent = G.nodes[node].get("agent_object")
         if agent:
+            # Clear search tracking for pieces that have been found
+            agent.clear_found_pieces()
             # Only clear completed queries, keep active ones
             agent.clear_completed_queries(active_query_uuids)
             # Still do the old cleanup

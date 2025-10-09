@@ -23,11 +23,30 @@ class Agent:
     is_complete: bool = False
     seen_queries: Set[str] = field(default_factory=set)  # UUIDs of queries processed (for duplication check)
     query_routing: Dict[str, int] = field(default_factory=dict)  # query_uuid -> who_forwarded_it_to_me
+    failed_pieces: Dict[int, int] = field(default_factory=dict)  # piece -> retry_count
+    last_search_time: Dict[int, int] = field(default_factory=dict)  # piece -> round_when_last_searched
     
     def get_needed_pieces(self, total_pieces: int) -> Set[int]:
         """Get pieces this agent needs to complete the file."""
         return set(range(total_pieces)) - self.file_pieces
     
+    def get_retry_pieces(self, current_round: int, ttl: int) -> Set[int]:
+        """Get pieces that should be retried based on timeout of Original Query (2*ttl rounds)."""
+        retry_pieces = set()
+        timeout_rounds = 2 * ttl + 1
+        
+        for piece, search_round in list(self.last_search_time.items()):
+            if current_round - search_round >= timeout_rounds:
+                if piece not in self.file_pieces:
+                    # Only mark as failed once when it first times out
+                    if piece not in self.failed_pieces:
+                        self.failed_pieces[piece] = 1
+                        # Only retry pieces that just timed out (not previously failed ones)
+                        retry_pieces.add(piece)
+                # Remove from tracking regardless of whether it was found
+                self.last_search_time.pop(piece, None)
+        
+        return retry_pieces
     def get_available_pieces_for_upload(self, requester_pieces: Set[int]) -> Set[int]:
         """Get pieces this agent can upload to a specific requester."""
         return self.file_pieces - requester_pieces
@@ -40,7 +59,7 @@ class Agent:
         """Check if this agent can perform another download."""
         return current_downloads < self.download_capacity
     
-    def decide_gossip_actions(self, graph: nx.Graph, total_pieces: int, rng: random.Random, K: int = 3, ttl: int = 5) -> Dict:
+    def decide_gossip_actions(self, graph: nx.Graph, total_pieces: int, rng: random.Random, K: int = 3, ttl: int = 5, current_round: int = 0) -> Dict:
         """Decide whether to initiate gossip searches or respond to queries.
         This replaces the old request/transfer logic with gossip discovery.
          Returns a dict with actions taken.
@@ -56,12 +75,23 @@ class Agent:
         # If we're a leecher or hybrid and need pieces, decide whether to search
         # Barebones, 30% chance to initiate a search if we need pieces
         # initiate a query up to K neighbors with TTL
+        # add retry for pieces that have not been found after 2*ttl + 1 rounds
         if self.agent_type in [AgentType.LEECHER, AgentType.HYBRID]:
             needed_pieces = self.get_needed_pieces(total_pieces)
-            if needed_pieces and rng.random() < 0.3:
-                piece = rng.choice(list(needed_pieces))
-                search_result = self.initiate_gossip_query(piece, ttl, K, graph, rng)
-                actions["initiate_search"] = search_result
+            retry_pieces = self.get_retry_pieces(current_round, ttl)
+            available_pieces = needed_pieces - set(self.failed_pieces.keys())
+            if retry_pieces:
+                available_pieces = available_pieces | retry_pieces
+            
+            if available_pieces:
+                search_prob = 0.3
+                if rng.random() < search_prob:
+                    piece = rng.choice(list(available_pieces))                    
+                    self.last_search_time[piece] = current_round
+                    
+                    # ie; could increase TTL for retry pieces - leave as static for now.
+                    search_result = self.initiate_gossip_query(piece, ttl, K, graph, rng)
+                    actions["initiate_search"] = search_result
         
         return actions
     
@@ -217,6 +247,23 @@ class Agent:
         completed_queries = set(self.query_routing.keys()) - active_query_uuids
         for query_uuid in completed_queries:
             self.query_routing.pop(query_uuid, None)
+    
+    def clear_found_pieces(self) -> None:
+        """Clear search tracking for pieces that have been found."""
+        pieces_to_remove = []
+        for piece in self.last_search_time.keys():
+            if piece in self.file_pieces:
+                pieces_to_remove.append(piece)
+        
+        for piece in pieces_to_remove:
+            self.last_search_time.pop(piece, None)
+            self.failed_pieces.pop(piece, None)  # Also clear retry count
+    
+    def mark_failed_piece(self, piece: int) -> None:
+        """Mark a piece as failed to be found (for retry)."""
+        if piece in self.last_search_time:
+            self.failed_pieces[piece] = self.failed_pieces.get(piece, 0) + 1
+    
 
 
 # DEPRECATED
