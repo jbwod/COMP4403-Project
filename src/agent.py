@@ -6,29 +6,61 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 
+########################################################
+# Roles
+########################################################
+
 class AgentType(str, Enum):
     """Enumeration for different types of agents."""
-    SEEDER = "seeder"
-    LEECHER = "leecher"
-    HYBRID = "hybrid"
+    SEEDER  =    "seeder"
+    LEECHER =   "leecher"
+    HYBRID  =    "hybrid"
 
 
+########################################################
+# Primary Agent Class and Helper Functions
+
+# get_needed_pieces
+# get_retry_pieces
+
+# decide_gossip_actions
+
+# process_gossip_message
+# process_gossip_query
+# process_gossip_hit
+
+# initiate_gossip_query
+# get_link_quality
+# select_neighbors
+
+# clear_old_queries
+# clear_completed_queries
+# clear_found_pieces
+# mark_failed_piece
+########################################################
 @dataclass
 class Agent:
-    node_id: int
-    agent_type: AgentType
-    file_pieces: Set[int] = field(default_factory=set)
+    node_id:        int
+    agent_type:     AgentType
+    file_pieces:    Set[int] = field(default_factory=set)
 
-    is_complete: bool = False
-    seen_queries: Set[str] = field(default_factory=set)  # UUIDs of queries processed (for duplication check)
-    query_routing: Dict[str, int] = field(default_factory=dict)  # query_uuid -> who_forwarded_it_to_me
-    failed_pieces: Dict[int, int] = field(default_factory=dict)  # piece -> retry_count
-    last_search_time: Dict[int, int] = field(default_factory=dict)  # piece -> round_when_last_searched
+    is_complete:        bool = False
+    seen_queries:       Set[str] = field(default_factory=set)  # UUIDs of queries processed (for duplication check)
+    query_routing:      Dict[str, int] = field(default_factory=dict)  # query_uuid -> who_forwarded_it_to_me
+    failed_pieces:      Dict[int, int] = field(default_factory=dict)  # piece -> retry_count
+    last_search_time:   Dict[int, int] = field(default_factory=dict)  # piece -> round_when_last_searched
+    failed_piece_time:  Dict[int, int] = field(default_factory=dict)  # piece -> round_when_failed
     
+    ########################################################
+    # Helper Functions
+    ########################################################
+
+    # Get Needed Pieces
     def get_needed_pieces(self, total_pieces: int) -> Set[int]:
         """Get pieces this agent needs to complete the file."""
         return set(range(total_pieces)) - self.file_pieces
     
+    # Get Retry Pieces
     def get_retry_pieces(self, current_round: int, ttl: int) -> Set[int]:
         """Get pieces that should be retried based on timeout of Original Query (2*ttl rounds)."""
         retry_pieces = set()
@@ -40,18 +72,19 @@ class Agent:
                     # Only mark as failed once when it first times out
                     if piece not in self.failed_pieces:
                         self.failed_pieces[piece] = 1
-                        # Only retry pieces that just timed out (not previously failed ones)
-                        retry_pieces.add(piece)
+                        self.failed_piece_time[piece] = current_round  # Track when it failed
+                        # Don't immediately retry - let it be excluded from searches
+                        # retry_pieces.add(piece)  # REMOVED: Don't retry immediately
                 # Remove from tracking regardless of whether it was found
                 self.last_search_time.pop(piece, None)
         
         return retry_pieces
     
+    # Decide Gossip Actions this node should take
     def decide_gossip_actions(self, graph: nx.Graph, total_pieces: int, rng: random.Random, K: int = 3, ttl: int = 5, current_round: int = 0, neighbor_selection: str = "bandwidth") -> Dict:
         """Decide whether to initiate gossip searches or respond to queries.
         This replaces the old request/transfer logic with gossip discovery.
-         Returns a dict with actions taken.
-         """
+         Returns a dict with actions taken."""
         actions = {
             "initiate_search": None,
             "respond_to_queries": [],
@@ -66,52 +99,29 @@ class Agent:
         # add retry for pieces that have not been found after 2*ttl + 1 rounds
         if self.agent_type in [AgentType.LEECHER, AgentType.HYBRID]:
             needed_pieces = self.get_needed_pieces(total_pieces)
-            retry_pieces = self.get_retry_pieces(current_round, ttl)
-            available_pieces = needed_pieces - set(self.failed_pieces.keys())
-            if retry_pieces:
-                available_pieces = available_pieces | retry_pieces
+            retry_pieces = self.get_retry_pieces(current_round, ttl)  # This now only handles timeout cleanup
+            failed_retry_pieces = self.get_failed_pieces_for_retry(current_round)  # Get pieces to retry
+            
+            # Available pieces = needed pieces - failed pieces - currently searching + retry pieces
+            currently_searching = set(self.last_search_time.keys())
+            available_pieces = (needed_pieces - set(self.failed_pieces.keys()) - currently_searching) | failed_retry_pieces
             
             if available_pieces:
                 search_prob = 0.3
                 if rng.random() < search_prob:
                     piece = rng.choice(list(available_pieces))                    
-                    self.last_search_time[piece] = current_round
                     
                     # ie; could increase TTL for retry pieces - leave as static for now.
                     search_result = self.initiate_gossip_query(piece, ttl, K, graph, rng, neighbor_selection)
+                    if search_result["forwards"]:  # Only track if search was successful
+                        self.last_search_time[piece] = current_round
+                    
                     actions["initiate_search"] = search_result
         
         return actions
+
     
-    def get_link_quality(self, graph: nx.Graph, neighbor: int) -> float:
-        """Get the bandwidth between this node and neighbor."""
-        if graph.has_edge(self.node_id, neighbor):
-            return graph[self.node_id][neighbor].get('weight', 50.0)  # Default to 50 if no weight
-        return 0.0  # No direct connection
-    
-    def select_neighbors(self, neighbors: List[int], K: int, graph: nx.Graph, rng: random.Random, method: str = "bandwidth") -> List[int]:
-        """Select K neighbors based on the specified method."""
-        if len(neighbors) <= K:
-            return neighbors
-        
-        if method == "random":
-            # Pure random selection
-            return rng.sample(neighbors, K)
-        
-        elif method == "bandwidth":
-            # Bandwidth filtered, then top K
-            weighted_neighbors = []
-            for neighbor in neighbors:
-                link_quality = self.get_link_quality(graph, neighbor)
-                weighted_neighbors.append((neighbor, link_quality))
-            
-            # Sort by link quality - prefer better connections
-            weighted_neighbors.sort(key=lambda x: x[1], reverse=True)
-            return [n for n, _ in weighted_neighbors[:K]]
-        
-        else:
-            return rng.sample(neighbors, K)
-    
+    # Process Gossip Message
     def process_gossip_message(self, message: Dict, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> Dict:
         """Process incoming gossip messages (queries or hits) and return response based on type."""
         response = {
@@ -137,6 +147,7 @@ class Agent:
             response["type"] = "query_response"
             response["forwards"] = result["forwards"]
             response["hit"] = result["hit"]
+            response["ttl"] = result["ttl"]  # Include the decremented TTL
             
             # "If we have the piece", create a transfer (but check for duplicates)
             if result["hit"] is not None:
@@ -160,31 +171,11 @@ class Agent:
             response.update(hit_result)
         return response
     
-    def initiate_gossip_query(self, piece: int, ttl: int, K: int, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> Dict:
-        """Initiate a gossip query for a specific piece."""
-        query_uuid = str(uuid.uuid4()) # random
-        self.seen_queries.add(query_uuid) # Mark as seen to avoid re-proc our own query
-        
-        # Choose K neighbors to forward to based on selection method
-        neighbors = list(graph.neighbors(self.node_id))
-        if not neighbors:
-            return {"query_uuid": query_uuid, "forwards": [], "hit": None}
-        
-        selected_neighbors = self.select_neighbors(neighbors, K, graph, rng, neighbor_selection)
-        
-        return {
-            "query_uuid": query_uuid,
-            "piece": piece,
-            "ttl": ttl,
-            "forwards": selected_neighbors,
-            "hit": None
-        }
-    
     def process_gossip_query(self, query_uuid: str, piece: int, ttl: int, from_node: int, K: int, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> Dict:
         """Process an incoming gossip query."""
         # Have we seen this query before? If so, ignore it and mark as duplicate
         if query_uuid in self.seen_queries:
-            return {"query_uuid": query_uuid, "forwards": [], "hit": None, "duplicate": True}
+            return {"query_uuid": query_uuid, "forwards": [], "hit": None, "duplicate": True, "ttl": ttl}
         
         # Record this query and who forwarded it
         self.seen_queries.add(query_uuid)
@@ -231,6 +222,59 @@ class Agent:
             "transfer": None
         }
     
+    # Initiate Gossip Query for a specific piece
+    def initiate_gossip_query(self, piece: int, ttl: int, K: int, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> Dict:
+        """Initiate a gossip query for a specific piece."""
+        query_uuid = str(uuid.uuid4()) # random
+        self.seen_queries.add(query_uuid) # Mark as seen to avoid re-proc our own query
+        
+        # Choose K neighbors to forward to based on selection method
+        neighbors = list(graph.neighbors(self.node_id))
+        if not neighbors:
+            return {"query_uuid": query_uuid, "forwards": [], "hit": None}
+        
+        selected_neighbors = self.select_neighbors(neighbors, K, graph, rng, neighbor_selection)
+        
+        return {
+            "query_uuid": query_uuid,
+            "piece": piece,
+            "ttl": ttl,
+            "forwards": selected_neighbors,
+            "hit": None
+        }
+    
+    # Get Link Quality (Edge Weight)
+    def get_link_quality(self, graph: nx.Graph, neighbor: int) -> float:
+        """Get the bandwidth between this node and neighbor."""
+        if graph.has_edge(self.node_id, neighbor):
+            return graph[self.node_id][neighbor].get('weight', 50.0)  # Default to 50 if no weight
+        return 0.0  # No direct connection
+    
+    # Select Neighbor Method (random or bandwidth)
+    def select_neighbors(self, neighbors: List[int], K: int, graph: nx.Graph, rng: random.Random, method: str = "bandwidth") -> List[int]:
+        """Select K neighbors based on the specified method."""
+        if len(neighbors) <= K:
+            return neighbors
+        
+        if method == "random":
+            # Pure random selection
+            return rng.sample(neighbors, K)
+        
+        elif method == "bandwidth":
+            # Bandwidth weight filtered, then top K
+            weighted_neighbors = []
+            for neighbor in neighbors:
+                link_quality = self.get_link_quality(graph, neighbor)
+                weighted_neighbors.append((neighbor, link_quality))
+            
+            # Sort by link quality - prefer better connections
+            weighted_neighbors.sort(key=lambda x: x[1], reverse=True)
+            return [n for n, _ in weighted_neighbors[:K]]
+        
+        else:
+            return rng.sample(neighbors, K)
+    
+    # Clear Old Queries
     def clear_old_queries(self, max_age: int = 100) -> None:
         """Clear old queries that are too old to exist"""
         if len(self.seen_queries) > max_age:
@@ -238,12 +282,14 @@ class Agent:
             # Don't clear query_routing here as it's needed for hit routing
             # The clear_completed_queries function handles routing cleanup
     
+    # Clear Completed Queries
     def clear_completed_queries(self, active_query_uuids: set) -> None:
         """Clear routing for queries that are no longer active."""
         completed_queries = set(self.query_routing.keys()) - active_query_uuids
         for query_uuid in completed_queries:
             self.query_routing.pop(query_uuid, None)
     
+    # Clear Found Pieces from Search Tracking
     def clear_found_pieces(self) -> None:
         """Clear search tracking for pieces that have been found."""
         pieces_to_remove = []
@@ -255,34 +301,33 @@ class Agent:
             self.last_search_time.pop(piece, None)
             self.failed_pieces.pop(piece, None)  # Also clear retry count
     
+    # Mark Failed Piece and Increment Retry Count for that piece
     def mark_failed_piece(self, piece: int) -> None:
         """Mark a piece as failed to be found (for retry)."""
         if piece in self.last_search_time:
             self.failed_pieces[piece] = self.failed_pieces.get(piece, 0) + 1
+    
+    # Get pieces that should be retried after waiting 5 rounds
+    def get_failed_pieces_for_retry(self, current_round: int, retry_delay: int = 5) -> Set[int]:
+        """Get failed pieces that should be retried after waiting 5 rounds."""
+        retry_pieces = set()
+        for piece, fail_count in self.failed_pieces.items():
+            # Only retry up to 5 times to prevent infinite retries
+            # maybe could do a exponential backoff
+            if fail_count <= 5:
+                failure_round = self.failed_piece_time.get(piece, 0)
+                rounds_since_failure = current_round - failure_round
+
+                if rounds_since_failure >= 5:
+                    retry_pieces.add(piece)
+        return retry_pieces
 
 
-def assign_n_seeders(G: nx.Graph, n: int, seed: Optional[int] = None) -> Dict[int, Agent]:
-    rng = random.Random(seed)
-    nodes = list(G.nodes)
-    if n > len(nodes):
-        raise ValueError("n cannot be greater than the number of nodes in the graph.")
 
-    seeders = set(rng.sample(nodes, n))
-    agents: Dict[int, Agent] = {}
-    for node in nodes:
-        if node in seeders:
-            agent_type = AgentType.SEEDER
-        else:
-            agent_type = AgentType.LEECHER
-        agents[node] = Agent(node_id=node, agent_type=agent_type)
-        G.nodes[node]["role"] = agent_type.value
-        G.nodes[node]["agent_object"] = agents[node]
-
-    return agents
-
-
-def add_node(G: nx.Graph, agent_type: AgentType, node_id: Optional[int] = None, 
-             connect_to_existing: bool = True, connection_prob: float = 0.3) -> Tuple[int, Agent]:
+########################################################
+# Add Agent to Graph
+########################################################
+def add_node(G: nx.Graph, agent_type: AgentType, node_id: Optional[int] = None, connect_to_existing: bool = True, connection_prob: float = 0.3) -> Tuple[int, Agent]:
     """
     Add a new node to the graph with the specified agent type.
     """
@@ -309,10 +354,13 @@ def add_node(G: nx.Graph, agent_type: AgentType, node_id: Optional[int] = None,
         for existing_node in existing_nodes:
             if random.random() < connection_prob:
                 G.add_edge(node_id, existing_node)
+
     
     return node_id, agent
 
-
+########################################################
+# Remove Agent from Graph
+########################################################
 def remove_node(G: nx.Graph, node_id: int) -> bool:
     """
     Remove a node from the graph.
@@ -323,8 +371,31 @@ def remove_node(G: nx.Graph, node_id: int) -> bool:
     G.remove_node(node_id)
     return True
 
+########################################################
+# Assign N Seeders to Graph
+########################################################
+def assign_n_seeders(G: nx.Graph, n: int, seed: Optional[int] = None) -> Dict[int, Agent]:
+    rng = random.Random(seed)
+    nodes = list(G.nodes)
+    if n > len(nodes):
+        raise ValueError("n cannot be greater than the number of nodes in the graph.")
 
+    seeders = set(rng.sample(nodes, n))
+    agents: Dict[int, Agent] = {}
+    for node in nodes:
+        if node in seeders:
+            agent_type = AgentType.SEEDER
+        else:
+            agent_type = AgentType.LEECHER
+        agents[node] = Agent(node_id=node, agent_type=agent_type)
+        G.nodes[node]["role"] = agent_type.value
+        G.nodes[node]["agent_object"] = agents[node]
 
+    return agents
+
+########################################################
+# Initialize File Sharing and Piece Distribution
+########################################################
 def initialize_file_sharing(G: nx.Graph, file_size_pieces: int, seed: Optional[int] = None) -> None:
     """
     File sharing, give seeders all file pieces and leechers none as a test
@@ -343,7 +414,9 @@ def initialize_file_sharing(G: nx.Graph, file_size_pieces: int, seed: Optional[i
                 G.nodes[node]["file_pieces"] = set()
                 G.nodes[node]["is_complete"] = False
 
-
+########################################################
+# Get Agent Info
+########################################################
 def get_agent_info(G: nx.Graph, node_id: int) -> Optional[Dict]:
     """
     Get agent information
@@ -361,26 +434,11 @@ def get_agent_info(G: nx.Graph, node_id: int) -> Optional[Dict]:
         "neighbors": list(G.neighbors(node_id))
     }
 
-
-def change_agent_role(G: nx.Graph, node_id: int, new_role: str) -> bool:
-    """
-    Update an Agent Role
-    """
-    if node_id not in G.nodes():
-        return False
-
-    if new_role not in ["seeder", "leecher", "hybrid"]:
-        raise ValueError(f"Invalid role: {new_role}. Must be 'seeder', 'leecher', or 'hybrid'")
-    
-    G.nodes[node_id]["role"] = new_role
-    
-    agent_obj = G.nodes[node_id].get("agent_object")
-    if agent_obj:
-        agent_obj.agent_type = AgentType(new_role)
-    
-    return True
-
-
+########################################################
+# Update Agent Completion & Role
+# - If agent becomes complete, convert to seeder
+# - If agent has some pieces but not all, convert to hybrid
+########################################################
 def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> bool:
     """
     is complete is true if the agent has all file pieces
@@ -412,8 +470,27 @@ def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> boo
     # true only if agent just became complete (was incomplete, now complete)
     return is_complete and not was_complete
 
+def change_agent_role(G: nx.Graph, node_id: int, new_role: str) -> bool:
+    """
+    Update an Agent Role
+    """
+    if node_id not in G.nodes():
+        return False
 
+    if new_role not in ["seeder", "leecher", "hybrid"]:
+        raise ValueError(f"Invalid role: {new_role}. Must be 'seeder', 'leecher', or 'hybrid'")
+    
+    G.nodes[node_id]["role"] = new_role
+    
+    agent_obj = G.nodes[node_id].get("agent_object")
+    if agent_obj:
+        agent_obj.agent_type = AgentType(new_role)
+    
+    return True
 
+########################################################
+# Decide Gossip Actions at destination Node (Simulation Layer)
+########################################################
 def process_gossip_message_at_node(G: nx.Graph, node_id: int, message: Dict, 
                                   seed: Optional[int] = None, neighbor_selection: str = "bandwidth") -> Dict:
     """
@@ -434,6 +511,9 @@ def process_gossip_message_at_node(G: nx.Graph, node_id: int, message: Dict,
     return agent_obj.process_gossip_message(message, G, rng, neighbor_selection)
 
 
+########################################################
+# Reset Agent State
+########################################################
 def reset_agent_state(agent: Agent) -> None:
     """Reset an agent to its initial state."""
     agent.file_pieces.clear()
@@ -442,7 +522,11 @@ def reset_agent_state(agent: Agent) -> None:
     agent.query_routing.clear()
     agent.failed_pieces.clear()
     agent.last_search_time.clear()
+    agent.failed_piece_time.clear()
 
+########################################################
+# Get Network Stats
+########################################################
 def get_network_stats(G: nx.Graph, total_pieces: int) -> Dict:
     """
     Overview of the network

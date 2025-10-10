@@ -15,6 +15,9 @@ class nxgraph:
             "node_2": []
         }
 
+########################################################
+# Graph generators
+########################################################
     def assign_bandwidth_weights(self, graph: nx.Graph, lower_ut: int = 5, upper_ut: int = 100) -> None:
         """Assign random bandwidth weights to all edges in the graph."""
         for u, v in graph.edges():
