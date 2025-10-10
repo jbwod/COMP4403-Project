@@ -7,6 +7,9 @@ from utils.plotter import GraphPlotter
 import networkx as nx
 
 
+########################################################
+# Main Simulation Function
+########################################################
 
 def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, current_round: int = 0, neighbor_selection: str = "bandwidth") -> Dict:
     """
@@ -39,7 +42,9 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, s
 pending_queries = []
 pending_hits = []
 
-
+########################################################
+# Reset Simulation
+########################################################
 def reset_simulation(G: nx.Graph, file_size_pieces: int, seed: Optional[int] = None) -> None:
     """
     1. Resets all agent states (file pieces, query tracking, etc.)
@@ -60,6 +65,9 @@ def reset_simulation(G: nx.Graph, file_size_pieces: int, seed: Optional[int] = N
         G.nodes[node]["file_pieces"] = set()
         G.nodes[node]["is_complete"] = False
 
+########################################################
+# Flag to remove queries at the Simulation Layer once complete.
+########################################################
 def clean_completed_queries(G: nx.Graph, completed_query_uuids: set) -> None:
     """Optionally clean up completed queries from pending lists and agent states from the simulation to make it look cleaner."""
     global pending_queries, pending_hits
@@ -80,6 +88,9 @@ def clean_completed_queries(G: nx.Graph, completed_query_uuids: set) -> None:
             for query_uuid in completed_query_uuids:
                 agent.query_routing.pop(query_uuid, None)
 
+########################################################
+# Simulate 3 Process Round (Queries, Hits, Transfers)
+########################################################
 def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", current_round: int = 0, neighbor_selection: str = "bandwidth") -> Dict:
     global pending_queries, pending_hits
 
@@ -136,30 +147,25 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
                 if gossip_actions["initiate_search"]:
                     search_initiators.append(node)
     
-    # Process search initiators
+    # Process search initiators - use the search result from agent decision
     for node in search_initiators:
         agent = G.nodes[node].get("agent_object")
-        needed_pieces = agent.get_needed_pieces(total_pieces)
-        if needed_pieces:
-            piece = rng.choice(list(needed_pieces))
-            search_result = agent.initiate_gossip_query(piece, ttl, K, G, rng, neighbor_selection)
-            
-            if search_result["forwards"]:
-                # Create initial queries (not just ONE)
-                for target in search_result["forwards"]:
-                    message = {
-                        "type": "query",
-                        "query_uuid": search_result["query_uuid"],
-                        "piece": search_result["piece"],
-                        "ttl": search_result["ttl"],
-                        "K": K,
-                        "from_node": node,
-                        "to_node": target,
-                        "origin": node
-                    }
-                    pending_queries.append(message)
-            
-            agent_actions[node] = {"initiate_search": search_result}
+        search_result = agent_actions[node]["initiate_search"]
+        
+        if search_result and search_result["forwards"]:
+            # Create initial queries from the agent's search result
+            for target in search_result["forwards"]:
+                message = {
+                    "type": "query",
+                    "query_uuid": search_result["query_uuid"],
+                    "piece": search_result["piece"],
+                    "ttl": search_result["ttl"],
+                    "K": K,
+                    "from_node": node,
+                    "to_node": target,
+                    "origin": node
+                }
+                pending_queries.append(message)
     
     # Set empty actions for all other non-searching nodes
     for node in G.nodes():
@@ -167,6 +173,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
             if node not in agent_actions:
                 agent_actions[node] = {"initiate_search": None, "respond_to_queries": [], "transfers": []}
     
+    ########################################################
     # 1. Process pending queries (one hop)
     current_queries = pending_queries.copy()
     pending_queries.clear()  # Clear pending queries
@@ -183,7 +190,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
                     "type": "query",
                     "query_uuid": query["query_uuid"],
                     "piece": query["piece"],
-                    "ttl": query["ttl"] - 1,
+                    "ttl": response["ttl"],  # Use the decremented TTL from agent response
                     "K": query["K"],
                     "from_node": query["to_node"],
                     "to_node": target,
@@ -204,7 +211,8 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
                     "origin": query["origin"]
                 }
                 hits_generated.append(hit_message)
-    
+
+    ########################################################
     #2. Process pending hits (one hop back next round)
     current_hits = pending_hits.copy() + hits_generated
     pending_hits.clear()
@@ -232,6 +240,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
                 }
                 pending_hits.append(next_hit)  # Add to pending for next round
     
+    ########################################################
     # 3. Create transfers, preventing duplicates for the same piece to the same node
     processed_transfers = set()
     
@@ -326,7 +335,6 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
     for hit in pending_hits:
         active_query_uuids.add(hit["query_uuid"])
     
-    
     for node in G.nodes():
         agent = G.nodes[node].get("agent_object")
         if agent:
@@ -348,4 +356,3 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
         "search_initiators": search_initiators, # All agents who initiated searches this round
         "num_searchers": len(search_initiators) # Number of agents that searched this round
     }
-
