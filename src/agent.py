@@ -18,8 +18,7 @@ class Agent:
     node_id: int
     agent_type: AgentType
     file_pieces: Set[int] = field(default_factory=set)
-    upload_capacity: int = 1
-    download_capacity: int = 1
+
     is_complete: bool = False
     seen_queries: Set[str] = field(default_factory=set)  # UUIDs of queries processed (for duplication check)
     query_routing: Dict[str, int] = field(default_factory=dict)  # query_uuid -> who_forwarded_it_to_me
@@ -47,19 +46,8 @@ class Agent:
                 self.last_search_time.pop(piece, None)
         
         return retry_pieces
-    def get_available_pieces_for_upload(self, requester_pieces: Set[int]) -> Set[int]:
-        """Get pieces this agent can upload to a specific requester."""
-        return self.file_pieces - requester_pieces
     
-    def can_upload(self, current_uploads: int) -> bool:
-        """Check if this agent can perform another upload."""
-        return current_uploads < self.upload_capacity
-    
-    def can_download(self, current_downloads: int) -> bool:
-        """Check if this agent can perform another download."""
-        return current_downloads < self.download_capacity
-    
-    def decide_gossip_actions(self, graph: nx.Graph, total_pieces: int, rng: random.Random, K: int = 3, ttl: int = 5, current_round: int = 0) -> Dict:
+    def decide_gossip_actions(self, graph: nx.Graph, total_pieces: int, rng: random.Random, K: int = 3, ttl: int = 5, current_round: int = 0, neighbor_selection: str = "bandwidth") -> Dict:
         """Decide whether to initiate gossip searches or respond to queries.
         This replaces the old request/transfer logic with gossip discovery.
          Returns a dict with actions taken.
@@ -90,7 +78,7 @@ class Agent:
                     self.last_search_time[piece] = current_round
                     
                     # ie; could increase TTL for retry pieces - leave as static for now.
-                    search_result = self.initiate_gossip_query(piece, ttl, K, graph, rng)
+                    search_result = self.initiate_gossip_query(piece, ttl, K, graph, rng, neighbor_selection)
                     actions["initiate_search"] = search_result
         
         return actions
@@ -101,7 +89,30 @@ class Agent:
             return graph[self.node_id][neighbor].get('weight', 50.0)  # Default to 50 if no weight
         return 0.0  # No direct connection
     
-    def process_gossip_message(self, message: Dict, graph: nx.Graph, rng: random.Random) -> Dict:
+    def select_neighbors(self, neighbors: List[int], K: int, graph: nx.Graph, rng: random.Random, method: str = "bandwidth") -> List[int]:
+        """Select K neighbors based on the specified method."""
+        if len(neighbors) <= K:
+            return neighbors
+        
+        if method == "random":
+            # Pure random selection
+            return rng.sample(neighbors, K)
+        
+        elif method == "bandwidth":
+            # Bandwidth filtered, then top K
+            weighted_neighbors = []
+            for neighbor in neighbors:
+                link_quality = self.get_link_quality(graph, neighbor)
+                weighted_neighbors.append((neighbor, link_quality))
+            
+            # Sort by link quality - prefer better connections
+            weighted_neighbors.sort(key=lambda x: x[1], reverse=True)
+            return [n for n, _ in weighted_neighbors[:K]]
+        
+        else:
+            return rng.sample(neighbors, K)
+    
+    def process_gossip_message(self, message: Dict, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> Dict:
         """Process incoming gossip messages (queries or hits) and return response based on type."""
         response = {
             "type": "none",
@@ -119,7 +130,8 @@ class Agent:
                 message["from_node"], 
                 message["K"], 
                 graph, 
-                rng
+                rng,
+                neighbor_selection
             )
             
             response["type"] = "query_response"
@@ -148,25 +160,17 @@ class Agent:
             response.update(hit_result)
         return response
     
-    def initiate_gossip_query(self, piece: int, ttl: int, K: int, graph: nx.Graph, rng: random.Random) -> Dict:
+    def initiate_gossip_query(self, piece: int, ttl: int, K: int, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> Dict:
         """Initiate a gossip query for a specific piece."""
         query_uuid = str(uuid.uuid4()) # random
         self.seen_queries.add(query_uuid) # Mark as seen to avoid re-proc our own query
         
-        # Choose K neighbors to forward to, biased by edge link quality (bandwidth) weights
+        # Choose K neighbors to forward to based on selection method
         neighbors = list(graph.neighbors(self.node_id))
         if not neighbors:
             return {"query_uuid": query_uuid, "forwards": [], "hit": None}
         
-        # Weight neighbors
-        weighted_neighbors = []
-        for neighbor in neighbors:
-            link_quality = self.get_link_quality(graph, neighbor)
-            weighted_neighbors.append((neighbor, link_quality))
-        
-        # Sort by link quality - prefer better connections
-        weighted_neighbors.sort(key=lambda x: x[1], reverse=True)
-        selected_neighbors = [n for n, _ in weighted_neighbors[:K]]
+        selected_neighbors = self.select_neighbors(neighbors, K, graph, rng, neighbor_selection)
         
         return {
             "query_uuid": query_uuid,
@@ -176,7 +180,7 @@ class Agent:
             "hit": None
         }
     
-    def process_gossip_query(self, query_uuid: str, piece: int, ttl: int, from_node: int, K: int, graph: nx.Graph, rng: random.Random) -> Dict:
+    def process_gossip_query(self, query_uuid: str, piece: int, ttl: int, from_node: int, K: int, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> Dict:
         """Process an incoming gossip query."""
         # Have we seen this query before? If so, ignore it and mark as duplicate
         if query_uuid in self.seen_queries:
@@ -201,16 +205,8 @@ class Agent:
             # Exclude the node that forwarded to us and already seen nodes
             candidates = [n for n in neighbors if n != from_node]
             
-                 # Weight neighbors
             if candidates:
-                weighted_candidates = []
-                for neighbor in candidates:
-                    link_quality = self.get_link_quality(graph, neighbor)
-                    weighted_candidates.append((neighbor, link_quality))
-                
-                # Sort by link quality - prefer better connections
-                weighted_candidates.sort(key=lambda x: x[1], reverse=True)
-                forwards = [n for n, _ in weighted_candidates[:K]]
+                forwards = self.select_neighbors(candidates, K, graph, rng, neighbor_selection)
         
         return {
             "query_uuid": query_uuid,
@@ -263,38 +259,7 @@ class Agent:
         """Mark a piece as failed to be found (for retry)."""
         if piece in self.last_search_time:
             self.failed_pieces[piece] = self.failed_pieces.get(piece, 0) + 1
-    
 
-
-# DEPRECATED
-def normal_prob(probs: Dict[AgentType, float]) -> Dict[AgentType, float]:
-    total = float(sum(probs.values()))
-    if total <= 0:
-        raise ValueError("Sum of probabilities must be greater than zero.")
-    return {k: v / total for k, v in probs.items()}
-
-def assign_random_agent_types(G: nx.Graph, probs: Optional[Dict[AgentType, float]] = None, seed: Optional[int] = None) -> Dict[int, Agent]:
-    if probs is None:
-        # Default test
-        probs = {
-            AgentType.SEEDER: 0.25,
-            AgentType.LEECHER: 0.25
-        }
-
-    probs = normal_prob(probs)
-    rng = random.Random(seed)
-
-    roles = list(probs.keys())
-    weights = [probs[role] for role in roles]
-
-    agents: Dict[int, Agent] = {}
-    for node in G.nodes:
-        agent_type = rng.choices(roles, weights=weights)[0]
-        agents[node] = Agent(node_id=node, agent_type=agent_type)
-        G.nodes[node]["role"] = agent_type.value
-        G.nodes[node]["agent_object"] = agents[node]
-
-    return agents
 
 def assign_n_seeders(G: nx.Graph, n: int, seed: Optional[int] = None) -> Dict[int, Agent]:
     rng = random.Random(seed)
@@ -358,27 +323,6 @@ def remove_node(G: nx.Graph, node_id: int) -> bool:
     G.remove_node(node_id)
     return True
 
-
-def add_random_node(G: nx.Graph, agent_type_probs: Optional[Dict[AgentType, float]] = None,
-                   node_id: Optional[int] = None, connect_to_existing: bool = True, 
-                   connection_prob: float = 0.3, seed: Optional[int] = None) -> Tuple[int, Agent]:
-    """
-    Add a new node to the graph with a randomly assigned agent type.
-    """
-    if agent_type_probs is None:
-        agent_type_probs = {
-            AgentType.SEEDER: 0.5,
-            AgentType.LEECHER: 0.5
-        }
-    
-    agent_type_probs = normal_prob(agent_type_probs)
-    rng = random.Random(seed)
-    
-    agent_types = list(agent_type_probs.keys())
-    weights = [agent_type_probs[agent_type] for agent_type in agent_types]
-    chosen_agent_type = rng.choices(agent_types, weights=weights)[0]
-    
-    return add_node(G, chosen_agent_type, node_id, connect_to_existing, connection_prob)
 
 
 def initialize_file_sharing(G: nx.Graph, file_size_pieces: int, seed: Optional[int] = None) -> None:
@@ -470,45 +414,8 @@ def update_agent_completion(G: nx.Graph, node_id: int, total_pieces: int) -> boo
 
 
 
-## GOSSIP-BASED AGENT FUNCTIONS
-
-def agent_gossip_behavior(G: nx.Graph, node_id: int, total_pieces: int, K: int = 3, ttl: int = 5, 
-                          seed: Optional[int] = None) -> Dict:
-    """
-    Agent Query/QueryHit Behavior using Gossip.
-    """
-    rng = random.Random(seed)
-    actions = {
-        "initiate_search": None, # if initiated, details of the search
-        "messages": [], # messages sent (queries/hits)
-        "transfers": [] # transfers made
-    }
-    
-    if node_id not in G.nodes():
-        return actions
-    
-    agent_data = G.nodes[node_id]
-    agent_obj = agent_data.get("agent_object")
-    
-    if not agent_obj:
-        return actions
-    
-    agent_obj.file_pieces = agent_data.get("file_pieces", set())
-    agent_obj.is_complete = agent_data.get("is_complete", False)
-    
-    # Only complete seeders don't send queries anymore
-    if agent_obj.is_complete and agent_obj.agent_type == AgentType.SEEDER:
-        return actions
-    
-    # Decide gossip actions
-    gossip_actions = agent_obj.decide_gossip_actions(G, total_pieces, rng, K, ttl)
-    actions.update(gossip_actions)
-    
-    return actions
-
-
 def process_gossip_message_at_node(G: nx.Graph, node_id: int, message: Dict, 
-                                  seed: Optional[int] = None) -> Dict:
+                                  seed: Optional[int] = None, neighbor_selection: str = "bandwidth") -> Dict:
     """
     Process a gossip message at a specific node.
     """
@@ -524,8 +431,17 @@ def process_gossip_message_at_node(G: nx.Graph, node_id: int, message: Dict,
     # Sync agent state
     agent_obj.file_pieces = G.nodes[node_id].get("file_pieces", set())
     
-    return agent_obj.process_gossip_message(message, G, rng)
+    return agent_obj.process_gossip_message(message, G, rng, neighbor_selection)
 
+
+def reset_agent_state(agent: Agent) -> None:
+    """Reset an agent to its initial state."""
+    agent.file_pieces.clear()
+    agent.is_complete = False
+    agent.seen_queries.clear()
+    agent.query_routing.clear()
+    agent.failed_pieces.clear()
+    agent.last_search_time.clear()
 
 def get_network_stats(G: nx.Graph, total_pieces: int) -> Dict:
     """
