@@ -1,14 +1,14 @@
 import random
 from typing import Dict, List, Optional, Tuple
 
-from src.agent import update_agent_completion, agent_gossip_behavior, process_gossip_message_at_node, get_network_stats
+from src.agent import update_agent_completion, process_gossip_message_at_node, get_network_stats, reset_agent_state
 from utils.plotter import GraphPlotter
 
 import networkx as nx
 
 
 
-def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, current_round: int = 0) -> Dict:
+def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, current_round: int = 0, neighbor_selection: str = "bandwidth") -> Dict:
     """
     Main simulation function - step-by-step: queries, hits, transfers.
     
@@ -23,16 +23,42 @@ def simulate_round(G: nx.Graph, total_pieces: int, seed: Optional[int] = None, s
         ttl: Time-to-live for queries (number of hops)
         max_searches_per_round: Maximum concurrent searches (for limited mode)
         current_round: The current round number (for retry tracking)
+        neighbor_selection: Neighbor selection method
     
     search_mode options:
     - "single": Only one (random) node searches per round
     - "realistic": Each agent decides independently
+
+    neighbor_selection options:
+    - "bandwidth": Select neighbors based on bandwidth weights
+    - "random": Select k neighbors randomly
     """
-    return simulate_step_by_step_round(G, total_pieces, K=K, ttl=ttl, max_searches_per_round=max_searches_per_round, seed=seed, single_agent=single_agent, cleanup_completed_queries=cleanup_completed_queries, search_mode=search_mode, current_round=current_round)
+    return simulate_step_by_step_round(G, total_pieces, K=K, ttl=ttl, max_searches_per_round=max_searches_per_round, seed=seed, single_agent=single_agent, cleanup_completed_queries=cleanup_completed_queries, search_mode=search_mode, current_round=current_round, neighbor_selection=neighbor_selection)
 
 # Global vars between rounds to hold the currently pending
 pending_queries = []
 pending_hits = []
+
+
+def reset_simulation(G: nx.Graph, file_size_pieces: int, seed: Optional[int] = None) -> None:
+    """
+    1. Resets all agent states (file pieces, query tracking, etc.)
+    2. Resets graph node attributes
+    3. Clears global simulator state (pending queries/hits)
+    """
+    global pending_queries, pending_hits
+    
+    # Reset it all
+    pending_queries.clear()
+    pending_hits.clear()
+
+    for node in G.nodes():
+        agent = G.nodes[node].get("agent_object")
+        if agent:
+            reset_agent_state(agent)
+
+        G.nodes[node]["file_pieces"] = set()
+        G.nodes[node]["is_complete"] = False
 
 def clean_completed_queries(G: nx.Graph, completed_query_uuids: set) -> None:
     """Optionally clean up completed queries from pending lists and agent states from the simulation to make it look cleaner."""
@@ -54,7 +80,7 @@ def clean_completed_queries(G: nx.Graph, completed_query_uuids: set) -> None:
             for query_uuid in completed_query_uuids:
                 agent.query_routing.pop(query_uuid, None)
 
-def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", current_round: int = 0) -> Dict:
+def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl: int = 5, max_searches_per_round: int = 3, seed: Optional[int] = None, single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, search_mode: str = "realistic", current_round: int = 0, neighbor_selection: str = "bandwidth") -> Dict:
     global pending_queries, pending_hits
 
     if seed is not None:
@@ -104,7 +130,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
             if single_agent is not None and node != single_agent:
                 agent_actions[node] = {"initiate_search": None, "respond_to_queries": [], "transfers": []}
             else:
-                gossip_actions = agent.decide_gossip_actions(G, total_pieces, rng, K, ttl, current_round)
+                gossip_actions = agent.decide_gossip_actions(G, total_pieces, rng, K, ttl, current_round, neighbor_selection)
                 agent_actions[node] = gossip_actions
                 
                 if gossip_actions["initiate_search"]:
@@ -116,7 +142,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
         needed_pieces = agent.get_needed_pieces(total_pieces)
         if needed_pieces:
             piece = rng.choice(list(needed_pieces))
-            search_result = agent.initiate_gossip_query(piece, ttl, K, G, rng)
+            search_result = agent.initiate_gossip_query(piece, ttl, K, G, rng, neighbor_selection)
             
             if search_result["forwards"]:
                 # Create initial queries (not just ONE)
@@ -148,7 +174,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
     
     for query in current_queries:
         # Process query at target node pon arrival
-        response = process_gossip_message_at_node(G, query["to_node"], query, seed)
+        response = process_gossip_message_at_node(G, query["to_node"], query, seed, neighbor_selection)
         
         if response["type"] == "query_response":
             # Forward query to next nodes next round
@@ -190,7 +216,7 @@ def simulate_step_by_step_round(G: nx.Graph, total_pieces: int, K: int = 3, ttl:
             continue
         
         # Handle the Gossip message.
-        response = process_gossip_message_at_node(G, hit["to_node"], hit, seed)
+        response = process_gossip_message_at_node(G, hit["to_node"], hit, seed, neighbor_selection)
         
         if response["type"] == "hit_forward":
             # Forward hit back to next forward node nex round
