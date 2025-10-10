@@ -397,14 +397,6 @@ def draw_graph(graph: nx.Graph, edge_labels: Optional[Dict[Tuple[int, int], floa
     plotter = GraphPlotter(save_images=save_images)
     plotter.draw_base_graph(graph, edge_labels=edge_labels, total_pieces=total_pieces)
 
-
-
-def draw_gossip_flow(graph: nx.Graph, search_result: Dict, total_pieces: Optional[int] = None, 
-                    save_images: bool = False) -> None:
-    """Draw the flow of a single gossip search showing the path taken and nodes visited."""
-    plotter = GraphPlotter(save_images=save_images)
-    plotter.draw_gossip_flow(graph, search_result, total_pieces)
-
 def draw_gossip_step_by_step(graph: nx.Graph, message_rounds: List[List[Dict]], 
                            transfers: List[Dict], total_pieces: Optional[int] = None, 
                            round_num: Optional[int] = None, save_images: bool = False) -> None:
