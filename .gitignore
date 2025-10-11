@@ -32,6 +32,7 @@ runs/
 logs/
 figs/
 notebooks/data/
+data/
 # If you want to keep small CSV summaries tracked, comment the next line:
 *.csv
 *.parquet
