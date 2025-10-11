@@ -1,7 +1,7 @@
 import ipywidgets as widgets
 from IPython.display import display, clear_output
 from src.graph import nxgraph
-import src.agent as agent_module
+import src.agent as agent
 from utils.plotter import draw_graph
 
 graph_generated = False
@@ -76,15 +76,6 @@ def create_widgets():
         layout=widgets.Layout(width='300px')
     )
     
-    num_seeders = widgets.IntSlider(
-        value=1,
-        min=1,
-        max=100,
-        step=1,
-        description='Seeders:',
-        style={'description_width': 'initial'},
-        layout=widgets.Layout(width='300px')
-    )
     
     file_pieces = widgets.IntSlider(
         value=15,
@@ -105,7 +96,7 @@ def create_widgets():
     output_area = widgets.Output()
     
     return (graph_type, num_nodes, ba_edges, er_prob, lower_bandwidth, 
-            upper_bandwidth, random_seed, num_seeders, file_pieces, 
+            upper_bandwidth, random_seed, file_pieces, 
             generate_btn, output_area)
 
 def update_controls_visibility(graph_type, ba_edges, er_prob, change):
@@ -123,7 +114,7 @@ def update_controls_visibility(graph_type, ba_edges, er_prob, change):
 
 def on_generate_clicked(b, graph_type, num_nodes, ba_edges, er_prob, 
                        lower_bandwidth, upper_bandwidth, random_seed, 
-                       num_seeders, file_pieces, output_area):
+                       file_pieces, output_area):
     """Handle graph generation button click."""
     global graph_generated, G, FILE_PIECES
     
@@ -158,12 +149,10 @@ def on_generate_clicked(b, graph_type, num_nodes, ba_edges, er_prob,
                 )
                 print(f"Generated ER graph with {num_nodes.value} nodes, p={er_prob.value}")
             
-            agent_module.assign_n_seeders(G.graph, n=num_seeders.value, seed=random_seed.value)
-            
             FILE_PIECES = file_pieces.value
             
             print(f"has {G.graph.number_of_nodes()} nodes and {G.graph.number_of_edges()} edges")
-            print(f"has {num_seeders.value} seeders, {file_pieces.value} file pieces")
+            print(f"has {file_pieces.value} file pieces")
             
             draw_graph(G.graph, total_pieces=file_pieces.value)
             graph_generated = True
@@ -179,7 +168,7 @@ def display_graph_widgets():
     global graph_generated, G, FILE_PIECES
     
     (graph_type, num_nodes, ba_edges, er_prob, lower_bandwidth, 
-     upper_bandwidth, random_seed, num_seeders, file_pieces, 
+     upper_bandwidth, random_seed, file_pieces, 
      generate_btn, output_area) = create_widgets()
     
     def update_visibility(change):
@@ -191,7 +180,7 @@ def display_graph_widgets():
     def on_click(b):
         on_generate_clicked(b, graph_type, num_nodes, ba_edges, er_prob, 
                            lower_bandwidth, upper_bandwidth, random_seed, 
-                           num_seeders, file_pieces, output_area)
+                           file_pieces, output_area)
     
     generate_btn.on_click(on_click)
 
@@ -201,8 +190,8 @@ def display_graph_widgets():
         widgets.HBox([graph_type, num_nodes]),
         widgets.HBox([ba_edges, er_prob]),
         widgets.HBox([lower_bandwidth, upper_bandwidth]),
-        widgets.HBox([random_seed, num_seeders]),
-        widgets.HBox([file_pieces, generate_btn]),
+        widgets.HBox([random_seed, file_pieces]),
+        widgets.HBox([generate_btn]),
         output_area
     ])
     
