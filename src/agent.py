@@ -490,28 +490,49 @@ def assign_n_seeders(G: nx.Graph, n: int, seed: Optional[int] = None) -> Dict[in
 ########################################################
 # Initialize File Sharing and Piece Distribution
 ########################################################
-def initialize_file_sharing(G: nx.Graph, file_size_pieces: int, seed: Optional[int] = None) -> None:
+def initialize_file_sharing(G: nx.Graph, file_size_pieces: int, seed: Optional[int] = None, distribution_type: str = "n_seeders", n_seeders: int = 1) -> None:
     """
     File sharing, give seeders all file pieces and leechers none as a test
+    Could expand into other distributions later (custom, random, etc.)
     """
     rng = random.Random(seed)
-    
-    for node, data in G.nodes(data=True):
-        if "role" in data:
-            agent_type = AgentType(data["role"])
-            if agent_type == AgentType.SEEDER:
-                # Seeders start with all file pieces
-                G.nodes[node]["file_pieces"] = set(range(file_size_pieces))
-                G.nodes[node]["is_complete"] = True
-                # Also update the agent object
-                agent_obj = G.nodes[node].get("agent_object")
-                if agent_obj:
-                    agent_obj.file_pieces = set(range(file_size_pieces))
-                    agent_obj.is_complete = True
-            else:  # LEECHER (just a placeholder for now)
-                # Leechers start with no pieces
-                G.nodes[node]["file_pieces"] = set()
-                G.nodes[node]["is_complete"] = False
+
+    def set_agent_pieces_and_role(G, node_id, pieces, file_size_pieces):
+        pieces_set = set(pieces)
+        is_complete = len(pieces_set) >= file_size_pieces
+        G.nodes[node_id]["file_pieces"] = pieces_set
+        G.nodes[node_id]["is_complete"] = is_complete
+
+        agent_obj = G.nodes[node_id].get("agent_object")
+        if agent_obj:
+            agent_obj.file_pieces = pieces_set
+            agent_obj.is_complete = is_complete
+            if is_complete:
+                agent_obj.agent_type = AgentType.SEEDER
+            elif len(pieces_set) > 0:
+                agent_obj.agent_type = AgentType.HYBRID
+            else:
+                agent_obj.agent_type = AgentType.LEECHER
+        if is_complete:
+            G.nodes[node_id]["role"] = "seeder"
+        elif len(pieces_set) > 0:
+            G.nodes[node_id]["role"] = "hybrid"
+        else:
+            G.nodes[node_id]["role"] = "leecher"
+
+    if distribution_type == "n_seeders":
+        # For n_seeders, work with existing roles from assign_n_seeders
+        for node, data in G.nodes(data=True):
+            if "role" in data:
+                agent_type = AgentType(data["role"])
+                if agent_type == AgentType.SEEDER:
+                    # Seeders start with all file pieces
+                    set_agent_pieces_and_role(G, node, range(file_size_pieces), file_size_pieces)
+                else:  # LEECHER
+                    # Leechers start with no pieces
+                    set_agent_pieces_and_role(G, node, set(), file_size_pieces)
+    else:
+        raise ValueError(f"Unknown distribution_type: {distribution_type}")
 
 ########################################################
 # Get Agent Info
@@ -624,6 +645,7 @@ def reset_agent_state(agent: Agent) -> None:
     agent.failed_piece_time.clear()
     agent.inbox.clear()
     agent.outbox.clear()
+    agent.agent_type = AgentType.LEECHER
 
 ########################################################
 # Get Network Stats
