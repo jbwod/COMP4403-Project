@@ -232,15 +232,15 @@ class GraphPlotter:
     
     
     
-    def draw_gossip_messages(self, graph: nx.Graph, messages: List[Dict], pos: Dict, total_pieces: Optional[int] = None, round_num: Optional[int] = None) -> None:
+    def draw_gossip_messages(self, graph: nx.Graph, messages: List[Dict], pos: Dict, total_pieces: Optional[int] = None, round_num: Optional[int] = None, max_ttl: int = 5) -> None:
         """Draw gossip messages."""
         for message in messages:
             if message["type"] == "query":
-                self.draw_query_arrow(message, pos)
+                self.draw_query_arrow(message, pos, max_ttl=max_ttl)
             elif message["type"] == "hit":
                 self.draw_hit_arrow(message, pos)
     
-    def draw_query_arrow(self, query: Dict, pos: Dict) -> None:
+    def draw_query_arrow(self, query: Dict, pos: Dict, max_ttl: int = 5) -> None:
         """Draw a query message arrow."""
         from_node = query["from_node"]
         to_node = query["to_node"]
@@ -255,6 +255,7 @@ class GraphPlotter:
         x2, y2 = pos[to_node]
         
         # Draw dashed purple arrow for queries
+        alpha = 0.3 + 0.7 * max(0, min(ttl, max_ttl)) / max_ttl
         plt.annotate('', xy=(x2, y2), xytext=(x1, y1),
                     arrowprops=dict(arrowstyle='->', 
                                   color=self.gossip_config.query_color,
@@ -266,7 +267,7 @@ class GraphPlotter:
         label_text = f"Q: {uuid_short} P{piece} O:{origin} TTL:{ttl}"
         plt.text((x1 + x2) / 2, (y1 + y2) / 2, label_text,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor=self.gossip_config.label_bg_color,
-                         alpha=self.gossip_config.label_alpha, edgecolor=self.gossip_config.query_color),
+                         alpha=alpha, edgecolor=self.gossip_config.query_color),
                 ha='center', va='center', fontsize=8, fontweight='bold')
     
     def draw_hit_arrow(self, hit: Dict, pos: Dict) -> None:
@@ -303,7 +304,7 @@ class GraphPlotter:
     
     def draw_gossip_step_by_step(self, graph: nx.Graph, message_rounds: List[List[Dict]], 
                                 transfers: List[Dict], total_pieces: Optional[int] = None, 
-                                round_num: Optional[int] = None) -> None:
+                                round_num: Optional[int] = None, max_ttl: int = 5) -> None:
         """
         Draw step-by-step visualization: queries (step 1), hits (step 2), transfers (step 3).
         In step 3, draw the graph without edges and then overlay transfer lines.
@@ -331,7 +332,7 @@ class GraphPlotter:
         # Draw queries
         queries = message_rounds[0] if message_rounds[0] else []
         if queries:
-            self.draw_gossip_messages(graph, queries, pos)
+            self.draw_gossip_messages(graph, queries, pos, max_ttl=max_ttl)
         
         query_count = len([m for m in queries if m["type"] == "query"])
         ax1.set_title(f"1. Queries ({query_count} queries)")
@@ -399,10 +400,10 @@ def draw_graph(graph: nx.Graph, edge_labels: Optional[Dict[Tuple[int, int], floa
 
 def draw_gossip_step_by_step(graph: nx.Graph, message_rounds: List[List[Dict]], 
                            transfers: List[Dict], total_pieces: Optional[int] = None, 
-                           round_num: Optional[int] = None, save_images: bool = False) -> None:
+                           round_num: Optional[int] = None, save_images: bool = False, max_ttl: int = 5) -> None:
     """Draw step-by-step visualization: queries (step 1), hits (step 2), transfers (step 3)."""
     plotter = GraphPlotter(save_images=save_images)
-    plotter.draw_gossip_step_by_step(graph, message_rounds, transfers, total_pieces, round_num)
+    plotter.draw_gossip_step_by_step(graph, message_rounds, transfers, total_pieces, round_num, max_ttl=max_ttl)
 
 def start_new_run() -> str:
     """Start a new simulation run with a fresh output directory."""
