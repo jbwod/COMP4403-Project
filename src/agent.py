@@ -51,6 +51,55 @@ class Agent:
     last_search_time:   Dict[int, int] = field(default_factory=dict)  # piece -> round_when_last_searched
     failed_piece_time:  Dict[int, int] = field(default_factory=dict)  # piece -> round_when_failed
     
+    # Per-agent in.out messages
+    inbox:          List[Dict] = field(default_factory=list)  # Messages received this round
+    outbox:         List[Dict] = field(default_factory=list)  # Messages to send next round
+    
+    ########################################################
+    # Main Agent Tick Method
+    ########################################################
+    
+    def tick(self, graph: nx.Graph, total_pieces: int, rng: random.Random, K: int = 3, ttl: int = 5, current_round: int = 0, neighbor_selection: str = "bandwidth", single_agent: Optional[int] = None) -> None:
+        """Main agent tick - process inbox, decide actions, create outbox messages."""
+        self.file_pieces = graph.nodes[self.node_id].get("file_pieces", set())
+        
+        # Process all messages in an agent inbox
+        for message in self.inbox:
+            self.process_gossip_message(message, graph, rng, neighbor_selection)
+        
+        # Clear inbox after we are done
+        self.inbox.clear()
+        
+        # Decide gossip actions
+        self.decide_gossip_actions(graph, total_pieces, rng, K, ttl, current_round, neighbor_selection, single_agent)
+        
+        # Handle transfers TODO; Not sure if we just leave this as simulator based.
+        self.process_transfers(graph, total_pieces)
+    
+    def process_transfers(self, graph: nx.Graph, total_pieces: int) -> None:
+        """Process any transfers that occurred this round."""
+        # Handled this in the simulator
+        pass
+    
+    def on_piece_received(self, piece: int, total_pieces: int) -> bool:
+        """Updated on piece - True if agent just completed."""
+        self.file_pieces.add(piece)
+        
+        was_complete = self.is_complete
+        self.is_complete = len(self.file_pieces) >= total_pieces
+        
+        if self.is_complete and not was_complete:
+            if self.agent_type in [AgentType.LEECHER, AgentType.HYBRID]:
+                self.agent_type = AgentType.SEEDER
+        
+        elif not self.is_complete and len(self.file_pieces) > 0 and self.agent_type == AgentType.LEECHER:
+            self.agent_type = AgentType.HYBRID
+        
+        # Clean up search tracking
+        self.clear_found_pieces()
+        
+        return self.is_complete and not was_complete
+    
     ########################################################
     # Helper Functions
     ########################################################
@@ -81,56 +130,54 @@ class Agent:
         return retry_pieces
     
     # Decide Gossip Actions this node should take
-    def decide_gossip_actions(self, graph: nx.Graph, total_pieces: int, rng: random.Random, K: int = 3, ttl: int = 5, current_round: int = 0, neighbor_selection: str = "bandwidth") -> Dict:
+    def decide_gossip_actions(self, graph: nx.Graph, total_pieces: int, rng: random.Random, K: int = 3, ttl: int = 5, current_round: int = 0, neighbor_selection: str = "bandwidth", single_agent: Optional[int] = None) -> None:
         """Decide whether to initiate gossip searches or respond to queries.
-        This replaces the old request/transfer logic with gossip discovery.
-         Returns a dict with actions taken."""
-        actions = {
-            "initiate_search": None,
-            "respond_to_queries": [],
-            "transfers": []
-        }
-        
-        self.file_pieces = graph.nodes[self.node_id].get("file_pieces", set())
-        
+        Now using an Outbox Messaging setup rather than Simulation co-ordinated Messaging
+        """
         # If we're a leecher or hybrid and need pieces, decide whether to search
         # Barebones, 30% chance to initiate a search if we need pieces
         # initiate a query up to K neighbors with TTL
         # add retry for pieces that have not been found after 2*ttl + 1 rounds
         if self.agent_type in [AgentType.LEECHER, AgentType.HYBRID]:
-            needed_pieces = self.get_needed_pieces(total_pieces)
-            retry_pieces = self.get_retry_pieces(current_round, ttl)  # This now only handles timeout cleanup
-            failed_retry_pieces = self.get_failed_pieces_for_retry(current_round)  # Get pieces to retry
+            can_initiate_search = (single_agent is None or single_agent == self.node_id)
             
-            # Available pieces = needed pieces - failed pieces - currently searching + retry pieces
-            currently_searching = set(self.last_search_time.keys())
-            available_pieces = (needed_pieces - set(self.failed_pieces.keys()) - currently_searching) | failed_retry_pieces
-            
-            if available_pieces:
-                search_prob = 0.3
-                if rng.random() < search_prob:
-                    piece = rng.choice(list(available_pieces))                    
-                    
-                    # ie; could increase TTL for retry pieces - leave as static for now.
-                    search_result = self.initiate_gossip_query(piece, ttl, K, graph, rng, neighbor_selection)
-                    if search_result["forwards"]:  # Only track if search was successful
-                        self.last_search_time[piece] = current_round
-                    
-                    actions["initiate_search"] = search_result
-        
-        return actions
+            if can_initiate_search:
+                needed_pieces = self.get_needed_pieces(total_pieces)
+                retry_pieces = self.get_retry_pieces(current_round, ttl)  # This now only handles timeout cleanup
+                failed_retry_pieces = self.get_failed_pieces_for_retry(current_round)  # Get pieces to retry
+                
+                # Available pieces = needed pieces - failed pieces - currently searching + retry pieces
+                currently_searching = set(self.last_search_time.keys())
+                available_pieces = (needed_pieces - set(self.failed_pieces.keys()) - currently_searching) | failed_retry_pieces
+                
+                if available_pieces:
+                    search_prob = 0.3
+                    if rng.random() < search_prob:
+                        piece = rng.choice(list(available_pieces))                    
+                        
+                        # ie; could increase TTL for retry pieces - leave as static for now.
+                        search_result = self.initiate_gossip_query(piece, ttl, K, graph, rng, neighbor_selection)
+                        if search_result["forwards"]:  # Only track if search was successful
+                            self.last_search_time[piece] = current_round
+                            
+                            # migrated from simulator.py
+                            for target in search_result["forwards"]:
+                                query_message = {
+                                    "type": "query",
+                                    "query_uuid": search_result["query_uuid"],
+                                    "piece": search_result["piece"],
+                                    "ttl": search_result["ttl"],
+                                    "K": K,
+                                    "from_node": self.node_id,
+                                    "to_node": target,
+                                    "origin": self.node_id
+                                }
+                                self.outbox.append(query_message)
 
     
     # Process Gossip Message
-    def process_gossip_message(self, message: Dict, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> Dict:
+    def process_gossip_message(self, message: Dict, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> None:
         """Process incoming gossip messages (queries or hits) and return response based on type."""
-        response = {
-            "type": "none",
-            "forwards": [],
-            "hit": None,
-            "transfer": None
-        }
-        
         if message["type"] == "query":
             # Process incoming if type is query
             result = self.process_gossip_query(
@@ -144,32 +191,80 @@ class Agent:
                 neighbor_selection
             )
             
-            response["type"] = "query_response"
-            response["forwards"] = result["forwards"]
-            response["hit"] = result["hit"]
-            response["ttl"] = result["ttl"]  # Include the decremented TTL
+            for target in result["forwards"]:
+                next_query = {
+                    "type": "query",
+                    "query_uuid": message["query_uuid"],
+                    "piece": message["piece"],
+                    "ttl": result["ttl"],  # Use the decremented TTL
+                    "K": message["K"],
+                    "from_node": self.node_id,
+                    "to_node": target,
+                    "origin": message["origin"]
+                }
+                if next_query["ttl"] > 0:  # Only forward if TTL > 0
+                    self.outbox.append(next_query)
             
             # "If we have the piece", create a transfer (but check for duplicates)
             if result["hit"] is not None:
-                # Check if the origin already has this piece to prevent unnecessary transfers
-                origin_pieces = graph.nodes[message["origin"]].get("file_pieces", set())
-                if message["piece"] not in origin_pieces:
-                    response["transfer"] = {
-                        "from": self.node_id,
-                        "to": message["origin"],
-                        "piece": message["piece"],
-                        "query_uuid": message["query_uuid"]
-                    }
+                hit_message = {
+                    "type": "hit",
+                    "query_uuid": message["query_uuid"],
+                    "piece": message["piece"],
+                    "from_node": self.node_id,
+                    "to_node": message["from_node"],
+                    "hit_node": result["hit"],
+                    "origin": message["origin"]
+                }
+                self.outbox.append(hit_message)
         
         elif message["type"] == "hit":
-            # Process QueryHit response
-            hit_result = self.process_gossip_hit(
-                message["query_uuid"], 
-                message["hit_node"], 
-                graph
-            )
-            response.update(hit_result)
-        return response
+            # Check if hit on origin?
+            if message["to_node"] == message["origin"]:
+                # Hit reached origin - create transfer
+                piece = message["piece"]
+                hit_node = message["hit_node"]
+                
+                # print(f"Agent {self.node_id} received hit for piece {piece} from {hit_node}")
+                
+                # Check if we don't already have this piece
+                if piece not in self.file_pieces:
+                    # print(f"Agent {self.node_id} creating transfer action for piece {piece}")
+                    # Create transfer action (this will be processed by the simulator)
+                    transfer_action = {
+                        "type": "transfer",
+                        "from": hit_node,
+                        "to": self.node_id,
+                        "to_node": self.node_id,
+                        "piece": piece,
+                        "query_uuid": message["query_uuid"]
+                    }
+                    self.outbox.append(transfer_action)
+                    # print(f"Agent {self.node_id} outbox now has {len(self.outbox)} messages")
+                    # print(f"Transfer action: {transfer_action}")
+                else:
+                    # print(f"Agent {self.node_id} already has piece {piece}")
+                    pass
+            else:
+                # bck to Ori
+                hit_result = self.process_gossip_hit(
+                    message["query_uuid"], 
+                    message["hit_node"], 
+                    graph
+                )
+                
+                # Forward Message
+                for target in hit_result["forwards"]:
+                    next_hit = {
+                        "type": "hit",
+                        "query_uuid": message["query_uuid"],
+                        "piece": message["piece"],
+                        "from_node": self.node_id,
+                        "to_node": target,
+                        "hit_node": message.get("hit_node", hit_result.get("hit_node")),
+                        "origin": message["origin"]  # Always use the OG origin
+                    }
+                    self.outbox.append(next_hit)
     
     def process_gossip_query(self, query_uuid: str, piece: int, ttl: int, from_node: int, K: int, graph: nx.Graph, rng: random.Random, neighbor_selection: str = "bandwidth") -> Dict:
         """Process an incoming gossip query."""
@@ -323,7 +418,6 @@ class Agent:
         return retry_pieces
 
 
-
 ########################################################
 # Add Agent to Graph
 ########################################################
@@ -409,6 +503,11 @@ def initialize_file_sharing(G: nx.Graph, file_size_pieces: int, seed: Optional[i
                 # Seeders start with all file pieces
                 G.nodes[node]["file_pieces"] = set(range(file_size_pieces))
                 G.nodes[node]["is_complete"] = True
+                # Also update the agent object
+                agent_obj = G.nodes[node].get("agent_object")
+                if agent_obj:
+                    agent_obj.file_pieces = set(range(file_size_pieces))
+                    agent_obj.is_complete = True
             else:  # LEECHER (just a placeholder for now)
                 # Leechers start with no pieces
                 G.nodes[node]["file_pieces"] = set()
@@ -523,6 +622,8 @@ def reset_agent_state(agent: Agent) -> None:
     agent.failed_pieces.clear()
     agent.last_search_time.clear()
     agent.failed_piece_time.clear()
+    agent.inbox.clear()
+    agent.outbox.clear()
 
 ########################################################
 # Get Network Stats
