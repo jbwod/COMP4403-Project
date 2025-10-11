@@ -1,5 +1,8 @@
 import ipywidgets as widgets
 from IPython.display import display, clear_output
+import src.agent as agent_module
+from utils.simulator_new import simulate_round_agent_driven, get_network_stats
+from utils.plotter import draw_gossip_step_by_step, start_new_run
 
 def create_widgets():
     """Create simulation configuration widgets."""
@@ -101,6 +104,12 @@ def create_widgets():
         style={'description_width': 'initial'}
     )
     
+    visualize_output = widgets.Checkbox(
+        value=True,
+        description='Visualize Output',
+        style={'description_width': 'initial'}
+    )
+    
     # Run simulation button
     run_btn = widgets.Button(
         description='Run Simulation',
@@ -112,10 +121,10 @@ def create_widgets():
     output_area = widgets.Output()
     
     return (simulation_type, max_rounds, seed, search_mode, neighbor_selection, 
-            ttl, k, cleanup_queries, single_agent, save_images, debug_output, run_btn, output_area)
+            ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, run_btn, output_area)
 
 def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_selection, 
-                  ttl, k, cleanup_queries, single_agent, save_images, debug_output, output_area):
+                  ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, output_area):
     """Handle run simulation button click."""
     b.description = "Running..."
     b.disabled = True
@@ -124,21 +133,196 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
         with output_area:
             clear_output(wait=True)
             print("Running simulation...")
-            print(f"Selected simulation: {simulation_type.value}")
-            print(f"Max rounds: {max_rounds.value}")
-            print(f"Seed: {seed.value}")
-            print(f"Search mode: {search_mode.value}")
-            print(f"Neighbor selection: {neighbor_selection.value}")
-            print(f"TTL: {ttl.value}")
-            print(f"K (neighbors): {k.value}")
-            print(f"Cleanup queries: {cleanup_queries.value}")
-            print(f"Single agent: {single_agent.value if single_agent.value > 0 else 'All agents'}")
-            print(f"Save images: {save_images.value}")
-            print(f"Debug output: {debug_output.value}")
-            print("Note: This is a placeholder")
+            
+            # Get graph data from init widget
+            from widgets.init_widget import get_graph_data
+            G, FILE_PIECES = get_graph_data()
+            
+            if G is None or FILE_PIECES is None:
+                print("Error: No graph data available. Generate a graph and initialize file sharing first.")
+                return
+            
+            # G is the NetworkX graph from get_graph_data()
+            print(f"Starting simulation with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
+            
+            # Initialize simulation
+            stats = get_network_stats(G, FILE_PIECES)
+            print(f"Initial: {stats['incomplete_leechers']} leechers incomplete, {stats['completion_rate']:.1%} completion rate")
+            
+            if debug_output.value:
+                print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+                print(f"File pieces: {FILE_PIECES}")
+                print(f"Max rounds: {max_rounds.value}")
+                print(f"Search mode: {search_mode.value}")
+                print(f"Neighbor selection: {neighbor_selection.value}")
+                print(f"TTL: {ttl.value}")
+                print(f"K (neighbors): {k.value}")
+                print(f"Single agent: {single_agent.value if single_agent.value > 0 else 'All agents'}")
+                print(f"Cleanup queries: {cleanup_queries.value}")
+                print(f"Save images: {save_images.value}")
+                print(f"Visualize output: {visualize_output.value}")
+
+                print(f"Seeders: {stats['seeders']}")
+                print(f"Leechers: {stats['leechers']} (incomplete: {stats['incomplete_leechers']})")
+                print(f"Hybrids: {stats['hybrids']} (incomplete: {stats['incomplete_hybrids']})")
+                print(f"Total pieces in network: {stats['total_pieces_in_network']}")
+                print(f"Completion rate: {stats['completion_rate']:.1%}")
+                for node in G.nodes():
+                    agent = G.nodes[node].get('agent_object')
+                    if agent:
+                        pieces_count = len(agent.file_pieces)
+                        needed = len(agent.get_needed_pieces(FILE_PIECES))
+                        role = agent.agent_type.value
+                        print(f"  Node {node}: {role} - {pieces_count}/{FILE_PIECES} pieces (needs {needed})")
+            
+            output_dir = start_new_run()
+            
+            retry_stats = {
+                'total_retries': 0,
+                'pieces_retried': set(),
+                'rounds_to_completion': {},
+                'previous_failed_pieces': {}
+            }
+            
+            # Run simulation rounds
+            for round_num in range(1, max_rounds.value + 1):
+                if debug_output.value:
+                    print(f"\n Round {round_num}")
+                
+                # Run one round of simulation
+                result = simulate_round_agent_driven(
+                    G, FILE_PIECES, 
+                    seed=seed.value + round_num, 
+                    cleanup_completed_queries=cleanup_queries.value, 
+                    search_mode=search_mode.value, 
+                    current_round=round_num, 
+                    neighbor_selection=neighbor_selection.value,
+                    single_agent=single_agent.value if single_agent.value > 0 else None
+                )
+                
+                if debug_output.value:
+                    print(f"\nROUND {round_num} RESULTS")
+                    print(f"Total Messages: {result['total_messages']}")
+                    print(f"Total Transfers: {result['total_transfers']}")
+                    print(f"New Completions: {result['new_completions']}")
+                    
+                    # Debug message details
+                    if result['message_rounds']:
+                        for msg_type, messages in result['message_rounds'].items():
+                            if messages:
+                                print(f"{msg_type.upper()}: {len(messages)} messages")
+                                for i, msg in enumerate(messages[:3]):  # Show first 3 messages
+                                    if msg_type == 'queries':
+                                        print(f"  Query {i+1}: {msg['from_node']} -> {msg['to_node']}, piece {msg['piece']}, TTL {msg['ttl']}")
+                                    elif msg_type == 'hits':
+                                        print(f"  Hit {i+1}: {msg['from_node']} -> {msg['to_node']}, piece {msg['piece']}, hit_node {msg['hit_node']}")
+                                if len(messages) > 3:
+                                    print(f"  ... and {len(messages) - 3} more {msg_type}")
+                    
+                    if result['transfers']:
+                        for transfer in result['transfers']:
+                            print(f"  Piece {transfer['piece']}: Node {transfer['from']} -> Node {transfer['to']}")
+                
+                if result['new_completions']:
+                    for node in result['new_completions']:
+                        retry_stats['rounds_to_completion'][node] = round_num
+                        if debug_output.value:
+                            print(f"\nNODE {node} COMPLETED THE FILE!")
+                
+                # Track when pieces fail (timeout)
+                for node in G.nodes():
+                    agent = G.nodes[node].get('agent_object')
+                    if agent and agent.failed_pieces:
+                        prev_failed = retry_stats['previous_failed_pieces'].get(node, {})
+                        for piece, fail_count in agent.failed_pieces.items():
+                            prev_count = prev_failed.get(piece, 0)
+                            if fail_count > prev_count:
+                                new_failures = fail_count - prev_count
+                                retry_stats['total_retries'] += new_failures
+                                retry_stats['pieces_retried'].add(piece)
+                                if debug_output.value:
+                                    print(f"  Node {node} failed piece {piece} {new_failures} times (total failures: {fail_count})")
+                        
+                        # Update previous state
+                        retry_stats['previous_failed_pieces'][node] = dict(agent.failed_pieces)
+                
+                # Debug agent states
+                if debug_output.value:
+                    print(f"\n--- AGENT STATES ---")
+                    for node in G.nodes():
+                        agent = G.nodes[node].get('agent_object')
+                        if agent:
+                            pieces_count = len(agent.file_pieces)
+                            needed = len(agent.get_needed_pieces(FILE_PIECES))
+                            role = agent.agent_type.value
+                            print(f"  Node {node}: {role} - {pieces_count}/{FILE_PIECES} pieces (needs {needed})")
+                            if agent.failed_pieces:
+                                print(f"    Failed pieces: {list(agent.failed_pieces.keys())}")
+                            if agent.last_search_time:
+                                print(f"    Currently searching: {list(agent.last_search_time.keys())}")
+                
+                stats = get_network_stats(G, FILE_PIECES)
+                if debug_output.value:
+                    print(f"Completion Rate: {stats['completion_rate']:.1%}")
+                    print(f"Seeders: {stats['seeders']}")
+                    print(f"Leechers: {stats['leechers']} (incomplete: {stats['incomplete_leechers']})")
+                    print(f"Hybrids: {stats['hybrids']} (incomplete: {stats['incomplete_hybrids']})")
+                    print(f"Total pieces in network: {stats['total_pieces_in_network']}")
+                
+                # Visualize if enabled
+                if visualize_output.value:
+                    draw_gossip_step_by_step(G, result['message_rounds'], result['transfers'], 
+                                            FILE_PIECES, round_num, save_images=save_images.value, max_ttl=ttl.value)
+                
+                # Check for completion
+                if stats['completion_rate'] >= 1.0:
+                    print(f"\nAll nodes have all pieces in {round_num} rounds")
+                    break
+            
+            # Final statistics
+            print(f"\n{'='*60}")
+            print(f"SIMULATION COMPLETED!")
+            print(f"{'='*60}")
+            print(f"Total failures across all agents: {retry_stats['total_retries']}")
+            print(f"Unique pieces that failed: {len(retry_stats['pieces_retried'])}")
+            print(f"Pieces that failed: {sorted(retry_stats['pieces_retried'])}")
+            if retry_stats['rounds_to_completion']:
+                avg_rounds = sum(retry_stats['rounds_to_completion'].values()) / len(retry_stats['rounds_to_completion'])
+                print(f"Average rounds to completion: {avg_rounds:.1f}")
+                print(f"Completion times: {retry_stats['rounds_to_completion']}")
+            
+            final_stats = get_network_stats(G, FILE_PIECES)
+            print(f"Total nodes: {final_stats['total_nodes']}")
+            print(f"Total edges: {final_stats['total_edges']}")
+            print(f"Seeders: {final_stats['seeders']}")
+            print(f"Leechers: {final_stats['leechers']}")
+            print(f"Complete leechers: {final_stats['complete_leechers']}")
+            print(f"Incomplete leechers: {final_stats['incomplete_leechers']}")
+            print(f"Completion rate: {final_stats['completion_rate']:.1%}")
+            print(f"Total pieces in network: {final_stats['total_pieces_in_network']}")
+            
+            if debug_output.value:
+                for node in G.nodes():
+                    agent = G.nodes[node].get('agent_object')
+                    if agent:
+                        pieces_count = len(agent.file_pieces)
+                        needed = len(agent.get_needed_pieces(FILE_PIECES))
+                        role = agent.agent_type.value
+                        print(f"  Node {node}: {role} - {pieces_count}/{FILE_PIECES} pieces (needs {needed})")
+                        if agent.failed_pieces:
+                            print(f"    Failed pieces: {list(agent.failed_pieces.keys())}")
+                        if agent.last_search_time:
+                            print(f"    Currently searching: {list(agent.last_search_time.keys())}")
+                
+                print(f"Rounds completed: {round_num}")
+                print(f"Total messages sent: {sum(result.get('total_messages', 0) for _ in range(1, round_num + 1))}")
+                print(f"Total transfers completed: {sum(result.get('total_transfers', 0) for _ in range(1, round_num + 1))}")
+                print(f"Success rate: {((FILE_PIECES * final_stats['total_nodes']) - final_stats['total_pieces_in_network'] + (FILE_PIECES * final_stats['total_nodes'])) / (FILE_PIECES * final_stats['total_nodes']) * 100:.1f}%")
             
     except Exception as e:
         print(f"Error running simulation: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         b.description = "Run Simulation"
         b.disabled = False
@@ -147,11 +331,11 @@ def display_simulation_widgets():
     """Display the simulation widgets."""
 
     (simulation_type, max_rounds, seed, search_mode, neighbor_selection, 
-     ttl, k, cleanup_queries, single_agent, save_images, debug_output, run_btn, output_area) = create_widgets()
+     ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, run_btn, output_area) = create_widgets()
     
     def on_run_click(b):
         on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_selection, 
-                      ttl, k, cleanup_queries, single_agent, save_images, debug_output, output_area)
+                      ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, output_area)
     
     run_btn.on_click(on_run_click)
     
@@ -165,10 +349,10 @@ def display_simulation_widgets():
         widgets.HBox([search_mode, neighbor_selection]),
         widgets.HBox([ttl, k]),
         widgets.HBox([cleanup_queries, single_agent]),
-        widgets.HBox([save_images, debug_output]),
+        widgets.HBox([save_images, debug_output, visualize_output]),
         widgets.HTML("<hr>"),
         output_area
     ])
     
     display(controls)
-    print("## PLACEHOLDER ##.")
+    print("Generate a graph and initialize file sharing first.")

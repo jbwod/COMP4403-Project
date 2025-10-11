@@ -7,9 +7,10 @@ import random
 G = None
 FILE_PIECES = None
 
-def set_graph_data(graph, file_pieces):
+def set_graph_data(graph_obj, file_pieces):
+    """Set graph data. Expects a NetworkX graph object."""
     global G, FILE_PIECES
-    G = graph
+    G = graph_obj
     FILE_PIECES = file_pieces
 
 def get_graph_data():
