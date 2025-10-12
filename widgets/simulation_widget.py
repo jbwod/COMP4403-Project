@@ -208,16 +208,20 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                     
                     # Debug message details
                     if result['message_rounds']:
-                        for msg_type, messages in result['message_rounds'].items():
-                            if messages:
-                                print(f"{msg_type.upper()}: {len(messages)} messages")
-                                for i, msg in enumerate(messages[:3]):  # Show first 3 messages
-                                    if msg_type == 'queries':
-                                        print(f"  Query {i+1}: {msg['from_node']} -> {msg['to_node']}, piece {msg['piece']}, TTL {msg['ttl']}")
-                                    elif msg_type == 'hits':
-                                        print(f"  Hit {i+1}: {msg['from_node']} -> {msg['to_node']}, piece {msg['piece']}, hit_node {msg['hit_node']}")
-                                if len(messages) > 3:
-                                    print(f"  ... and {len(messages) - 3} more {msg_type}")
+                        queries, hits, _ = result['message_rounds']
+                        if queries:
+                            print(f"QUERIES: {len(queries)} messages")
+                            for i, msg in enumerate(queries[:3]):  # Show first 3 queries
+                                print(f"  Query {i+1}: {msg['from_node']} -> {msg['to_node']}, piece {msg['piece']}, TTL {msg['ttl']}")
+                            if len(queries) > 3:
+                                print(f"  ... and {len(queries) - 3} more queries")
+                        
+                        if hits:
+                            print(f"HITS: {len(hits)} messages")
+                            for i, msg in enumerate(hits[:3]):  # Show first 3 hits
+                                print(f"  Hit {i+1}: {msg['from_node']} -> {msg['to_node']}, piece {msg['piece']}, hit_node {msg['hit_node']}")
+                            if len(hits) > 3:
+                                print(f"  ... and {len(hits) - 3} more hits")
                     
                     if result['transfers']:
                         for transfer in result['transfers']:
