@@ -275,8 +275,9 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                 
                 # Visualize if enabled
                 if visualize_output.value:
+                    show_debug_info = False # used to show the node brain
                     draw_gossip_step_by_step(G, result['message_rounds'], result['transfers'], 
-                                            FILE_PIECES, round_num, save_images=save_images.value, max_ttl=ttl.value)
+                                            FILE_PIECES, round_num, save_images=save_images.value, max_ttl=ttl.value, show_debug_info=show_debug_info)
                 
                 # Check for completion
                 if stats['completion_rate'] >= 1.0:

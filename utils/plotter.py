@@ -134,6 +134,29 @@ class GraphPlotter:
             plt.text(x, y + 0.1, f"{num_pieces}/{total_pieces}", 
                      ha='center', va='bottom', fontsize=8)
     
+    def draw_debug_info_boxes(self, graph: nx.Graph, pos: Dict):
+        for node in graph.nodes():
+            agent_obj = graph.nodes[node].get('agent_object')
+            if agent_obj:
+                pieces = sorted(list(agent_obj.file_pieces))
+                routing = list(agent_obj.query_routing.keys())
+                searching = list(agent_obj.last_search_time.keys())
+                routing_info = []
+                for query_uuid, from_node in agent_obj.query_routing.items():
+                    routing_info.append(f'{query_uuid[:8]}<-{from_node}')
+                
+                info_text = f'Node {node} ({agent_obj.agent_type.value})\n'
+                info_text += f'Pieces: {pieces}\n'
+                info_text += f'Routing: {len(routing)}\n'
+                if routing_info:
+                    info_text += f'Routes: {routing_info[0]}\n'
+                info_text += f'Searching: {searching}'
+
+                x, y = pos[node]
+                plt.text(x, y + 0.4, info_text, ha='center', va='bottom', 
+                       bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9, edgecolor='black'),
+                       fontsize=9, fontfamily='monospace')
+    
     def draw_gossip_transfer_line(self, from_node: int, to_node: int, piece: int, pos: Dict, query_uuid: str = None) -> None:
         """Draw a transfer line between nodes when a query successfully identifies a source."""
         if from_node not in pos or to_node not in pos:
@@ -304,7 +327,8 @@ class GraphPlotter:
     
     def draw_gossip_step_by_step(self, graph: nx.Graph, message_rounds: List[List[Dict]], 
                                 transfers: List[Dict], total_pieces: Optional[int] = None, 
-                                round_num: Optional[int] = None, max_ttl: int = 5) -> None:
+                                round_num: Optional[int] = None, max_ttl: int = 5, 
+                                show_debug_info: bool = False) -> None:
         """
         Draw step-by-step visualization: queries (step 1), hits (step 2), transfers (step 3).
         In step 3, draw the graph without edges and then overlay transfer lines.
@@ -324,10 +348,13 @@ class GraphPlotter:
         
         # Draw base graph with weighted edges
         node_colors = self.get_node_colors(graph)
-        self.draw_weighted_graph(graph, pos, node_colors)
+        self.draw_weighted_graph(graph, pos, node_colors, show_labels=False)
         
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
+        
+        if show_debug_info:
+            self.draw_debug_info_boxes(graph, pos)
         
         # Draw queries
         queries = message_rounds[0] if message_rounds[0] else []
@@ -346,6 +373,9 @@ class GraphPlotter:
         
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
+        
+        if show_debug_info:
+            self.draw_debug_info_boxes(graph, pos)
         
         # Draw hits
         hits = message_rounds[1] if message_rounds[1] else []
@@ -366,6 +396,9 @@ class GraphPlotter:
         
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
+        
+        if show_debug_info:
+            self.draw_debug_info_boxes(graph, pos)
         
         # Draw transfer lines
         if transfers:
@@ -400,10 +433,11 @@ def draw_graph(graph: nx.Graph, edge_labels: Optional[Dict[Tuple[int, int], floa
 
 def draw_gossip_step_by_step(graph: nx.Graph, message_rounds: List[List[Dict]], 
                            transfers: List[Dict], total_pieces: Optional[int] = None, 
-                           round_num: Optional[int] = None, save_images: bool = False, max_ttl: int = 5) -> None:
+                           round_num: Optional[int] = None, save_images: bool = False, 
+                           max_ttl: int = 5, show_debug_info: bool = False) -> None:
     """Draw step-by-step visualization: queries (step 1), hits (step 2), transfers (step 3)."""
     plotter = GraphPlotter(save_images=save_images)
-    plotter.draw_gossip_step_by_step(graph, message_rounds, transfers, total_pieces, round_num, max_ttl=max_ttl)
+    plotter.draw_gossip_step_by_step(graph, message_rounds, transfers, total_pieces, round_num, max_ttl=max_ttl, show_debug_info=show_debug_info)
 
 def start_new_run() -> str:
     """Start a new simulation run with a fresh output directory."""
