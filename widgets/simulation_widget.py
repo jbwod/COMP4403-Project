@@ -119,6 +119,7 @@ def create_widgets():
     
     # Output area
     output_area = widgets.Output()
+    print('this is output area %s' % output_area)
     
     return (simulation_type, max_rounds, seed, search_mode, neighbor_selection, 
             ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, run_btn, output_area)
@@ -127,10 +128,10 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                   ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, output_area):
     """Handle run simulation button click."""
     b.description = "Running..."
-    b.disabled = True
-    
+    b.disabled = True 
     try:
         with output_area:
+            print('in output area')
             clear_output(wait=True)
             print("Running simulation...")
             
@@ -342,6 +343,7 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
     finally:
         b.description = "Run Simulation"
         b.disabled = False
+
 
 def display_simulation_widgets():
     """Display the simulation widgets."""
