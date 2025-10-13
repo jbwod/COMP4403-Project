@@ -183,6 +183,11 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                 'rounds_to_completion': {},
                 'previous_failed_pieces': {}
             }
+
+            number_of_q = 0
+            number_of_h = 0
+            number_of_messages = 0
+            number_of_transfers = 0
             
             # Run simulation rounds
             for round_num in range(1, max_rounds.value + 1):
@@ -249,7 +254,11 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                         
                         # Update previous state
                         retry_stats['previous_failed_pieces'][node] = dict(agent.failed_pieces)
-                
+
+                number_of_h += len(result['message_rounds'][1])
+                number_of_q += len(result['message_rounds'][0])
+                number_of_messages += result.get('total_messages', 0)
+                number_of_transfers += result.get('total_transfers', 0)
                 # Debug agent states
                 if debug_output.value:
                     print(f"\n--- AGENT STATES ---")
@@ -320,9 +329,11 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                             print(f"    Currently searching: {list(agent.last_search_time.keys())}")
                 
                 print(f"Rounds completed: {round_num}")
-                print(f"Total messages sent: {sum(result.get('total_messages', 0) for _ in range(1, round_num + 1))}")
-                print(f"Total transfers completed: {sum(result.get('total_transfers', 0) for _ in range(1, round_num + 1))}")
-                print(f"Success rate: {((FILE_PIECES * final_stats['total_nodes']) - final_stats['total_pieces_in_network'] + (FILE_PIECES * final_stats['total_nodes'])) / (FILE_PIECES * final_stats['total_nodes']) * 100:.1f}%")
+                print(f"Total queries sent: {number_of_q}")
+                print(f"Total hits sent: {number_of_h}")
+                print(f"Total messages sent: {number_of_messages}")
+                print(f"Total transfers completed: {number_of_transfers}")
+                print(f"Success rate: {final_stats['completion_rate']:.1%}")
             
     except Exception as e:
         print(f"Error running simulation: {e}")

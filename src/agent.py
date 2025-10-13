@@ -673,5 +673,5 @@ def get_network_stats(G: nx.Graph, total_pieces: int) -> Dict:
         "incomplete_leechers": len(leechers) - len(complete_leechers),
         "incomplete_hybrids": len(hybrids) - len(complete_hybrids),
         "total_pieces_in_network": total_pieces_in_network,
-        "completion_rate": (len(complete_leechers) + len(complete_hybrids)) / (len(leechers) + len(hybrids)) if (leechers or hybrids) else 1.0
+        "completion_rate": (len(seeders) + len(complete_leechers) + len(complete_hybrids)) / G.number_of_nodes()
     }

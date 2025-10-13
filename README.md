@@ -19,9 +19,9 @@ This project provides a modelling framework for resilient GNUTELLA-like peer-to-
     ```bash
     pip install -r requirements.txt
     ```
-3. Run the framework with the included Jupyter Notebook.
+3. Run the framework with the included Demo Jupyter Notebook.
 4. Generate a Graph with desired parameters.
 <img width="593" height="219" alt="image" src="https://github.com/user-attachments/assets/d9d806ea-4e29-430b-9de5-cfd772a9745a" />
-
-5. Run the Model with desired parameters.
+5. Apply a File and Node Distribution
+6. Run the Model with desired parameters or select a Test Scenario. 
 ![rounds](https://github.com/user-attachments/assets/0c258961-fb6d-4d49-9192-65f914f7e502)
