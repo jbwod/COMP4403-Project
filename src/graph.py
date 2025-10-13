@@ -33,6 +33,17 @@ class nxgraph:
                     self.assign_bandwidth_weights(G, lower_ut, upper_ut)
                 self.graph = G
                 return G
+            
+    def ER_Graph_nm(self, nodes: int, edges: int, seed: int, weighted: bool, lower_ut: int = 5, upper_ut: int = 100) -> nx.Graph:
+        """ER Graph generator ensuring the graph is connected and with m no. of edges, with optional weighted edges."""
+        print('Generating ER graph')
+        while True:
+            G = nx.gnm_random_graph(nodes, edges)
+            if nx.is_connected(G):
+                if weighted:
+                    self.assign_bandwidth_weights(G, lower_ut, upper_ut)
+                self.graph = G
+                return G
 
     def BA_graph(self, nodes: int, edges: int, seed: int, weighted: bool, lower_ut: int = 5, upper_ut: int = 100) -> nx.Graph:
         """BA graph with optional weighted edges."""

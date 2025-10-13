@@ -123,6 +123,7 @@ class GraphPlotter:
                               node_size=self.plot_config.node_size)
  
         if show_labels:
+            show_labels=False
             nx.draw_networkx_labels(graph, pos)
     
     def draw_piece_counters(self, graph: nx.Graph, pos: Dict, total_pieces: int):
@@ -215,7 +216,7 @@ class GraphPlotter:
         # Draw graph with weighted edges
         self.draw_weighted_graph(graph, pos, node_colors)
 
-        nx.draw_networkx_edge_labels(graph, pos, edge_labels=(edge_labels or auto_edge_labels), font_size=8)
+        nx.draw_networkx_edge_labels(graph, pos, edge_labels=(edge_labels or auto_edge_labels), font_size=6)
         
         if total_pieces is not None:
             self.draw_piece_counters(graph, pos, total_pieces)
