@@ -358,6 +358,8 @@ class GraphPlotter:
             self.draw_debug_info_boxes(graph, pos)
         
         # Draw queries
+        # len(message_rounds[0])
+        # print(f"Queries: {len(message_rounds[0])}")
         queries = message_rounds[0] if message_rounds[0] else []
         if queries:
             self.draw_gossip_messages(graph, queries, pos, max_ttl=max_ttl)
@@ -379,6 +381,8 @@ class GraphPlotter:
             self.draw_debug_info_boxes(graph, pos)
         
         # Draw hits
+        # len(message_rounds[1])
+        # print(f"Hits: {len(message_rounds[1])}")
         hits = message_rounds[1] if message_rounds[1] else []
         if hits:
             self.draw_gossip_messages(graph, hits, pos)

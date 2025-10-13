@@ -273,7 +273,7 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                     print(f"Leechers: {stats['leechers']} (incomplete: {stats['incomplete_leechers']})")
                     print(f"Hybrids: {stats['hybrids']} (incomplete: {stats['incomplete_hybrids']})")
                     print(f"Total pieces in network: {stats['total_pieces_in_network']}")
-                
+                #print(result['message_rounds'])
                 # Visualize if enabled
                 if visualize_output.value:
                     show_debug_info = False # used to show the node brain
