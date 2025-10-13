@@ -10,7 +10,7 @@ from utils.plotter import draw_graph, draw_gossip_step_by_step
 
 
 
-def weighted_scene(seed,nodes,lower_ut,upper_ut,FILE_PIECES,n_seeders,search_mode,neighbor_selection,ttl,single_agent):
+def weighted_scene(seed,nodes,lower_ut,upper_ut,FILE_PIECES,n_seeders,search_mode,neighbor_selection,ttl,single_agent, weighted):
     # Scenario: Changes in agent behaviour with weighted and unweighted graphs
     G = nxgraph() 
     # Scenario parameters
@@ -26,6 +26,7 @@ def weighted_scene(seed,nodes,lower_ut,upper_ut,FILE_PIECES,n_seeders,search_mod
     ttl              = ttl
     cleanup_queries  = True
     single_agent     = single_agent
+    weighted = weighted
     save_images      = False
     visualize_output = True
     output_area      = widgets.Output()    
@@ -37,12 +38,12 @@ def weighted_scene(seed,nodes,lower_ut,upper_ut,FILE_PIECES,n_seeders,search_mod
     }
 
     # Generating BA graph
-    for m in range(1, 5, 1):
+    for m in range(1, 10, 1):
         ba = G.BA_graph(
             nodes    = nodes,
             edges    = m,
             seed     = seed,
-            weighted = True,
+            weighted = weighted,
             lower_ut = lower_ut,
             upper_ut = upper_ut
         )
@@ -80,7 +81,7 @@ def weighted_scene(seed,nodes,lower_ut,upper_ut,FILE_PIECES,n_seeders,search_mod
         er = G.ER_Graph_nm(
             nodes    = nodes,
             edges    = m_er,
-            weighted = True,
+            weighted = weighted,
             seed     = seed,
             lower_ut = lower_ut,
             upper_ut = upper_ut
