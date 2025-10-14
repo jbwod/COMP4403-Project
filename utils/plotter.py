@@ -527,11 +527,57 @@ def plot_activity_over_time(simulation_data: List[Dict], graph: nx.Graph = None,
         for node in completions:
             node_completions[node] = round_idx + 1  #+1 because rounds start from 1
     
+    # kill/revive events
+    kill_events = {}  # {round: [node_ids]}
+    revive_events = {}  # {round: [node_ids]}
+    
+    for round_idx, round_data in enumerate(simulation_data):
+        round_num = round_idx + 1
+        lifecycle_actions = round_data.get('lifecycle_actions', [])
+        
+        for action in lifecycle_actions:
+            if 'Killed node' in action:
+                # get node ID from action string like "Killed node 1 at round 5"
+                try:
+                    node_id = int(action.split('node ')[1].split(' ')[0])
+                    if round_num not in kill_events:
+                        kill_events[round_num] = []
+                    kill_events[round_num].append(node_id)
+                except (IndexError, ValueError):
+                    pass
+            elif 'Revived node' in action:
+                # get node ID from action string like "Revived node 1 at round 10"
+                try:
+                    node_id = int(action.split('node ')[1].split(' ')[0])
+                    if round_num not in revive_events:
+                        revive_events[round_num] = []
+                    revive_events[round_num].append(node_id)
+                except (IndexError, ValueError):
+                    pass
+    
     plt.figure(figsize=(15, 12))
     
     ax1 = plt.subplot(3, 1, 1)
     ax1.plot(rounds, query_counts, 'o-', label='Queries', color='purple', linewidth=2, markersize=4)
     ax1.plot(rounds, hit_counts, 's-', label='Hits', color='green', linewidth=2, markersize=4)
+    
+    # dead
+    for round_num, node_ids in kill_events.items():
+        ax1.axvline(x=round_num, color='red', linestyle='-', alpha=0.7, linewidth=2)
+        max_count = max(max(query_counts), max(hit_counts))
+        y_pos = max_count
+        ax1.text(round_num, y_pos, f'Killed: {", ".join(map(str, node_ids))}', 
+                rotation=90, ha='right', va='bottom', fontsize=8, color='red',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7))
+    
+    # alive again
+    for round_num, node_ids in revive_events.items():
+        ax1.axvline(x=round_num, color='green', linestyle='-', alpha=0.7, linewidth=2)
+        max_count = max(max(query_counts), max(hit_counts))
+        y_pos = max_count
+        ax1.text(round_num, y_pos, f'Revived: {", ".join(map(str, node_ids))}', 
+                rotation=90, ha='right', va='bottom', fontsize=8, color='green',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7))
     
     # Add vertical lines for node completions
     if node_completions:
@@ -558,6 +604,14 @@ def plot_activity_over_time(simulation_data: List[Dict], graph: nx.Graph = None,
     ax2 = plt.subplot(3, 1, 2)
     ax2.plot(rounds, transfer_counts, '^-', label='Transfers per Round', color='red', linewidth=2, markersize=4)
     
+    # dead
+    for round_num, node_ids in kill_events.items():
+        ax2.axvline(x=round_num, color='red', linestyle='-', alpha=0.8, linewidth=2)
+    
+    # alive
+    for round_num, node_ids in revive_events.items():
+        ax2.axvline(x=round_num, color='green', linestyle='-', alpha=0.8, linewidth=2)
+    
     if node_completions:
         for node, completion_round in node_completions.items():
             ax2.axvline(x=completion_round, color='orange', linestyle='--', alpha=0.7, linewidth=1)
@@ -570,6 +624,14 @@ def plot_activity_over_time(simulation_data: List[Dict], graph: nx.Graph = None,
     
     ax3 = plt.subplot(3, 1, 3)
     ax3.plot(rounds, cumulative_transfers, 'D-', label='Cumulative Transfers', color='darkred', linewidth=2, markersize=3)
+    
+    # kill events (red)
+    for round_num, node_ids in kill_events.items():
+        ax3.axvline(x=round_num, color='red', linestyle='-', alpha=0.8, linewidth=2)
+    
+    # revive events (green)
+    for round_num, node_ids in revive_events.items():
+        ax3.axvline(x=round_num, color='green', linestyle='-', alpha=0.8, linewidth=2)
     
     if node_completions:
         for node, completion_round in node_completions.items():
