@@ -45,14 +45,12 @@ class nxgraph:
                 self.graph = G
                 return G
 
-    def BA_graph(self, nodes: int, edges: int, seed: int, weighted: bool, lower_ut: int = 5, upper_ut: int = 100) -> nx.Graph:
+    def BA_graph(self, nodes: int, edges: int, seed: int, weighted: bool, lower_ut: int , upper_ut: int) -> nx.Graph:
         """BA graph with optional weighted edges."""
         print('Generating BA Graph')
         # Rule 1: download unit 1 ud = 1 MB/s, upload unit uu = r*ud for r<1. 
         #         Total weight/bandwith ut = ud + uu = ud(1+r)
         # Rule 2: We use ut for bandwith / weight of edges, and ut will be randomised and assigned directly.
-        lower_ut = 5
-        upper_ut = 100
 
         G = nx.barabasi_albert_graph(n=nodes, m=edges, seed=seed)
 
