@@ -15,6 +15,7 @@ class AgentType(str, Enum):
     SEEDER  =    "seeder"
     LEECHER =   "leecher"
     HYBRID  =    "hybrid"
+    DEAD    =    "dead"
 
 
 ########################################################
@@ -55,12 +56,20 @@ class Agent:
     inbox:          List[Dict] = field(default_factory=list)  # Messages received this round
     outbox:         List[Dict] = field(default_factory=list)  # Messages to send next round
     
+    # DEAD state management
+    stored_edges:   List[Tuple[int, int, Dict]] = field(default_factory=list)  # (neighbor, weight, attributes) for killed nodes
+    original_role:  Optional[AgentType] = None  # Original role before being killed
+    
     ########################################################
     # Main Agent Tick Method
     ########################################################
     
     def tick(self, graph: nx.Graph, total_pieces: int, rng: random.Random, K: int = 3, ttl: int = 5, current_round: int = 0, neighbor_selection: str = "bandwidth", single_agent: Optional[int] = None) -> None:
         """Main agent tick - process inbox, decide actions, create outbox messages."""
+        # DEAD agents don't DO anything
+        if self.agent_type == AgentType.DEAD:
+            return
+            
         self.file_pieces = graph.nodes[self.node_id].get("file_pieces", set())
         
         # Process all messages in an agent inbox
@@ -416,6 +425,57 @@ class Agent:
                 if rounds_since_failure >= 5:
                     retry_pieces.add(piece)
         return retry_pieces
+    
+    # Kill node - store edges and set to DEAD
+    def kill_node(self, graph: nx.Graph) -> None:
+        """Kill this node - store edges and set to DEAD state."""
+        if self.agent_type == AgentType.DEAD:
+            return  # Already dead - RIP
+            
+        # Store original role
+        self.original_role = self.agent_type
+        
+        # Store all edges
+        self.stored_edges.clear()
+        for neighbor in list(graph.neighbors(self.node_id)):
+            edge_data = graph[self.node_id][neighbor].copy()
+            self.stored_edges.append((neighbor, edge_data.get('weight', 50.0), edge_data))
+        
+        # Remove all edges from graph
+        edges_to_remove = list(graph.edges(self.node_id))
+        for edge in edges_to_remove:
+            graph.remove_edge(*edge)
+        
+        # Set agent to DEAD
+        self.agent_type = AgentType.DEAD
+        
+        # Clear all active state immediately to prevent any message sending
+        self.inbox.clear()
+        self.outbox.clear()
+        self.seen_queries.clear()
+        self.query_routing.clear()
+    
+    # Revive node
+    def revive_node(self, graph: nx.Graph) -> None:
+        """Revive this node."""
+        if self.agent_type != AgentType.DEAD:
+            return  # Not dead - yay!
+            
+        # Restore
+        for neighbor, weight, attributes in self.stored_edges:
+            # Remove weight from attributes if it exists to avoid duplicate
+            edge_attrs = attributes.copy()
+            edge_attrs.pop('weight', None)
+            graph.add_edge(self.node_id, neighbor, weight=weight, **edge_attrs)
+
+        if self.original_role:
+            self.agent_type = self.original_role
+            self.original_role = None
+        else:
+            self.agent_type = AgentType.LEECHER  # Default fallback should work
+        
+        # Clear stored edges
+        self.stored_edges.clear()
 
 
 ########################################################
@@ -645,6 +705,8 @@ def reset_agent_state(agent: Agent) -> None:
     agent.failed_piece_time.clear()
     agent.inbox.clear()
     agent.outbox.clear()
+    agent.stored_edges.clear()
+    agent.original_role = None
     agent.agent_type = AgentType.LEECHER
 
 ########################################################
@@ -657,6 +719,7 @@ def get_network_stats(G: nx.Graph, total_pieces: int) -> Dict:
     seeders = [node for node in G.nodes() if G.nodes[node].get("role") == "seeder"]
     leechers = [node for node in G.nodes() if G.nodes[node].get("role") == "leecher"]
     hybrids = [node for node in G.nodes() if G.nodes[node].get("role") == "hybrid"]
+    dead_nodes = [node for node in G.nodes() if G.nodes[node].get("role") == "dead"]
     complete_leechers = [node for node in leechers if G.nodes[node].get("is_complete", False)]
     complete_hybrids = [node for node in hybrids if G.nodes[node].get("is_complete", False)]
     
@@ -668,6 +731,7 @@ def get_network_stats(G: nx.Graph, total_pieces: int) -> Dict:
         "seeders": len(seeders),
         "leechers": len(leechers),
         "hybrids": len(hybrids),
+        "dead_nodes": len(dead_nodes),
         "complete_leechers": len(complete_leechers),
         "complete_hybrids": len(complete_hybrids),
         "incomplete_leechers": len(leechers) - len(complete_leechers),

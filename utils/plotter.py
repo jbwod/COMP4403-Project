@@ -8,7 +8,7 @@ from PIL import Image
 import glob
 
 
-ROLES = {"seeder": "blue", "leecher": "green", "hybrid": "purple"}
+ROLES = {"seeder": "blue", "leecher": "green", "hybrid": "purple", "dead": "red"}
 DEFAULT_FIGURE_SIZE = (10, 8)
 DEFAULT_LAYOUT_SEED = 42
 
