@@ -138,7 +138,9 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
             
             # Get graph data from init widget
             from widgets.init_widget import get_graph_data
+            from widgets.scenario_widget import get_scenario_data
             G, FILE_PIECES = get_graph_data()
+            scenario_data = get_scenario_data()
             
             if G is None or FILE_PIECES is None:
                 print("Error: No graph data available. Generate a graph and initialize file sharing first.")
@@ -206,7 +208,8 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                     search_mode=search_mode.value, 
                     current_round=round_num, 
                     neighbor_selection=neighbor_selection.value,
-                    single_agent=single_agent.value if single_agent.value > 0 else None
+                    single_agent=single_agent.value if single_agent.value > 0 else None,
+                    scenario_data=scenario_data
                 )
                 
                 if debug_output.value:
@@ -214,6 +217,9 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                     print(f"Total Messages: {result['total_messages']}")
                     print(f"Total Transfers: {result['total_transfers']}")
                     print(f"New Completions: {result['new_completions']}")
+                    
+                    if result.get('lifecycle_actions'):
+                        print(f"Lifecycle Actions: {result['lifecycle_actions']}")
                     
                     # Debug message details
                     if result['message_rounds']:
@@ -316,6 +322,8 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
             print(f"Total edges: {final_stats['total_edges']}")
             print(f"Seeders: {final_stats['seeders']}")
             print(f"Leechers: {final_stats['leechers']}")
+            print(f"Hybrids: {final_stats['hybrids']}")
+            print(f"Dead nodes: {final_stats['dead_nodes']}")
             print(f"Complete leechers: {final_stats['complete_leechers']}")
             print(f"Incomplete leechers: {final_stats['incomplete_leechers']}")
             print(f"Completion rate: {final_stats['completion_rate']:.1%}")
