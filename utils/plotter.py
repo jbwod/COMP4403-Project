@@ -501,3 +501,53 @@ def create_round_gif(output_dir: str = None, gif_name: str = "rounds.gif",
                     duration: int = 1000) -> str:
     """Create a GIF from round images."""
     return create_gif_from_run(output_dir, gif_name, duration, "round_*_gossip_steps.png")
+
+def plot_activity_over_time(simulation_data: List[Dict], title: str = "Activity Over Time") -> None:
+    """
+    Plot activity over time.
+    """
+    rounds = list(range(1, len(simulation_data) + 1))
+    queries = [round_data.get('message_rounds', [[], [], []])[0] for round_data in simulation_data]
+    hits = [round_data.get('message_rounds', [[], [], []])[1] for round_data in simulation_data]
+    transfers = [round_data.get('transfers', []) for round_data in simulation_data]
+    
+    query_counts = [len(q) for q in queries]
+    hit_counts = [len(h) for h in hits]
+    transfer_counts = [len(t) for t in transfers]
+    
+    node_completions = {}
+    for round_idx, round_data in enumerate(simulation_data):
+        completions = round_data.get('new_completions', [])
+        for node in completions:
+            node_completions[node] = round_idx + 1  #+1 because rounds start from 1
+    
+    plt.figure(figsize=(12, 8))
+    
+    plt.plot(rounds, query_counts, 'o-', label='Queries', color='purple', linewidth=2, markersize=4)
+    plt.plot(rounds, hit_counts, 's-', label='Hits', color='green', linewidth=2, markersize=4)
+    plt.plot(rounds, transfer_counts, '^-', label='Transfers', color='red', linewidth=2, markersize=4)
+    
+    # Add vertical lines for node completions
+    if node_completions:
+        max_count = max(max(query_counts), max(hit_counts), max(transfer_counts))
+        y_positions = []
+        
+        for node, completion_round in node_completions.items():
+            # Add vertical line for each completion
+            plt.axvline(x=completion_round, color='orange', linestyle='--', alpha=0.7, linewidth=1)
+            
+            # Add node label
+            y_pos = max_count * (0.7 + (len(y_positions) % 3) * 0.1)  # Stagger
+            y_positions.append(y_pos)
+            plt.text(completion_round, y_pos, f'Node {node}', 
+                    rotation=90, ha='right', va='bottom', fontsize=8, 
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor='orange', alpha=0.7))
+    
+    plt.xlabel('Round Number')
+    plt.ylabel('Count')
+    plt.title(title)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
