@@ -348,8 +348,8 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                 print(f"{'='*60}")
                 
                 try:
-                    # Activity over time
-                    plot_activity_over_time(simulation_data, "Simulation Activity Over Time")
+                    # Activity over time with failure rate
+                    plot_activity_over_time(simulation_data, G, "Simulation Activity Over Time")
                     
                 except Exception as e:
                     print(f"Error generating analytics: {e}")

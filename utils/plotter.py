@@ -502,7 +502,7 @@ def create_round_gif(output_dir: str = None, gif_name: str = "rounds.gif",
     """Create a GIF from round images."""
     return create_gif_from_run(output_dir, gif_name, duration, "round_*_gossip_steps.png")
 
-def plot_activity_over_time(simulation_data: List[Dict], title: str = "Activity Over Time") -> None:
+def plot_activity_over_time(simulation_data: List[Dict], graph: nx.Graph = None, title: str = "Activity Over Time") -> None:
     """
     Plot activity over time.
     """
@@ -515,39 +515,73 @@ def plot_activity_over_time(simulation_data: List[Dict], title: str = "Activity 
     hit_counts = [len(h) for h in hits]
     transfer_counts = [len(t) for t in transfers]
     
+    cumulative_transfers = []
+    total = 0
+    for count in transfer_counts:
+        total += count
+        cumulative_transfers.append(total)
+    
     node_completions = {}
     for round_idx, round_data in enumerate(simulation_data):
         completions = round_data.get('new_completions', [])
         for node in completions:
             node_completions[node] = round_idx + 1  #+1 because rounds start from 1
     
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(15, 12))
     
-    plt.plot(rounds, query_counts, 'o-', label='Queries', color='purple', linewidth=2, markersize=4)
-    plt.plot(rounds, hit_counts, 's-', label='Hits', color='green', linewidth=2, markersize=4)
-    plt.plot(rounds, transfer_counts, '^-', label='Transfers', color='red', linewidth=2, markersize=4)
+    ax1 = plt.subplot(3, 1, 1)
+    ax1.plot(rounds, query_counts, 'o-', label='Queries', color='purple', linewidth=2, markersize=4)
+    ax1.plot(rounds, hit_counts, 's-', label='Hits', color='green', linewidth=2, markersize=4)
     
     # Add vertical lines for node completions
     if node_completions:
-        max_count = max(max(query_counts), max(hit_counts), max(transfer_counts))
+        max_count = max(max(query_counts), max(hit_counts))
         y_positions = []
         
         for node, completion_round in node_completions.items():
             # Add vertical line for each completion
-            plt.axvline(x=completion_round, color='orange', linestyle='--', alpha=0.7, linewidth=1)
+            ax1.axvline(x=completion_round, color='orange', linestyle='--', alpha=0.7, linewidth=1)
             
             # Add node label
             y_pos = max_count * (0.7 + (len(y_positions) % 3) * 0.1)  # Stagger
             y_positions.append(y_pos)
-            plt.text(completion_round, y_pos, f'Node {node}', 
+            ax1.text(completion_round, y_pos, f'Node {node}', 
                     rotation=90, ha='right', va='bottom', fontsize=8, 
                     bbox=dict(boxstyle='round,pad=0.2', facecolor='orange', alpha=0.7))
     
-    plt.xlabel('Round Number')
-    plt.ylabel('Count')
-    plt.title(title)
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    ax1.set_xlabel('Round Number')
+    ax1.set_ylabel('Count')
+    ax1.set_title('Query and Hit Activity')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    ax2 = plt.subplot(3, 1, 2)
+    ax2.plot(rounds, transfer_counts, '^-', label='Transfers per Round', color='red', linewidth=2, markersize=4)
+    
+    if node_completions:
+        for node, completion_round in node_completions.items():
+            ax2.axvline(x=completion_round, color='orange', linestyle='--', alpha=0.7, linewidth=1)
+    
+    ax2.set_xlabel('Round Number')
+    ax2.set_ylabel('Transfers per Round')
+    ax2.set_title('Transfer Activity per Round')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    ax3 = plt.subplot(3, 1, 3)
+    ax3.plot(rounds, cumulative_transfers, 'D-', label='Cumulative Transfers', color='darkred', linewidth=2, markersize=3)
+    
+    if node_completions:
+        for node, completion_round in node_completions.items():
+            ax3.axvline(x=completion_round, color='orange', linestyle='--', alpha=0.7, linewidth=1)
+    
+    ax3.set_xlabel('Round Number')
+    ax3.set_ylabel('Total Transfers')
+    ax3.set_title('Cumulative Transfer Progress')
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+    
+    plt.suptitle(title, fontsize=14)
     plt.tight_layout()
     plt.show()
 
