@@ -7,6 +7,9 @@ from utils.plotter import GraphPlotter
 import networkx as nx
 
 
+# DEPRECATED - old simulator, was used to orchestrate. Kept for reference.
+#  New simulator is in simulator_new.py
+
 ########################################################
 # Main Simulation Function
 ########################################################

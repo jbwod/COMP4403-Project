@@ -2,7 +2,7 @@ import ipywidgets as widgets
 from IPython.display import display, clear_output
 import src.agent as agent_module
 from utils.simulator_new import simulate_round_agent_driven, get_network_stats
-from utils.plotter import draw_gossip_step_by_step, start_new_run
+from utils.plotter import draw_gossip_step_by_step, start_new_run, plot_activity_over_time
 
 def create_widgets():
     """Create simulation configuration widgets."""
@@ -77,11 +77,6 @@ def create_widgets():
         layout=widgets.Layout(width='200px')
     )
     
-    cleanup_queries = widgets.Checkbox(
-        value=True,
-        description='Cleanup Completed Queries',
-        style={'description_width': 'initial'}
-    )
     
     single_agent = widgets.IntText(
         value=0,
@@ -110,6 +105,12 @@ def create_widgets():
         style={'description_width': 'initial'}
     )
     
+    show_analytics = widgets.Checkbox(
+        value=False,
+        description='Show Analytics',
+        style={'description_width': 'initial'}
+    )
+    
     # Run simulation button
     run_btn = widgets.Button(
         description='Run Simulation',
@@ -122,10 +123,10 @@ def create_widgets():
     print('this is output area %s' % output_area)
     
     return (simulation_type, max_rounds, seed, search_mode, neighbor_selection, 
-            ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, run_btn, output_area)
+            ttl, k, single_agent, save_images, debug_output, visualize_output, show_analytics, run_btn, output_area)
 
 def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_selection, 
-                  ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, output_area):
+                  ttl, k, single_agent, save_images, debug_output, visualize_output, show_analytics, output_area):
     """Handle run simulation button click."""
     b.description = "Running..."
     b.disabled = True 
@@ -137,7 +138,9 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
             
             # Get graph data from init widget
             from widgets.init_widget import get_graph_data
+            from widgets.scenario_widget import get_scenario_data
             G, FILE_PIECES = get_graph_data()
+            scenario_data = get_scenario_data()
             
             if G is None or FILE_PIECES is None:
                 print("Error: No graph data available. Generate a graph and initialize file sharing first.")
@@ -159,7 +162,6 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                 print(f"TTL: {ttl.value}")
                 print(f"K (neighbors): {k.value}")
                 print(f"Single agent: {single_agent.value if single_agent.value > 0 else 'All agents'}")
-                print(f"Cleanup queries: {cleanup_queries.value}")
                 print(f"Save images: {save_images.value}")
                 print(f"Visualize output: {visualize_output.value}")
 
@@ -190,6 +192,9 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
             number_of_messages = 0
             number_of_transfers = 0
             
+            # Collect simulation data for analytics
+            simulation_data = []
+            
             # Run simulation rounds
             for round_num in range(1, max_rounds.value + 1):
                 if debug_output.value:
@@ -199,11 +204,12 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                 result = simulate_round_agent_driven(
                     G, FILE_PIECES, 
                     seed=seed.value + round_num, 
-                    cleanup_completed_queries=cleanup_queries.value, 
+                    cleanup_completed_queries=True, 
                     search_mode=search_mode.value, 
                     current_round=round_num, 
                     neighbor_selection=neighbor_selection.value,
-                    single_agent=single_agent.value if single_agent.value > 0 else None
+                    single_agent=single_agent.value if single_agent.value > 0 else None,
+                    scenario_data=scenario_data
                 )
                 
                 if debug_output.value:
@@ -211,6 +217,9 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                     print(f"Total Messages: {result['total_messages']}")
                     print(f"Total Transfers: {result['total_transfers']}")
                     print(f"New Completions: {result['new_completions']}")
+                    
+                    if result.get('lifecycle_actions'):
+                        print(f"Lifecycle Actions: {result['lifecycle_actions']}")
                     
                     # Debug message details
                     if result['message_rounds']:
@@ -260,6 +269,8 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                 number_of_q += len(result['message_rounds'][0])
                 number_of_messages += result.get('total_messages', 0)
                 number_of_transfers += result.get('total_transfers', 0)
+                if show_analytics.value:
+                    simulation_data.append(result)
                 # Debug agent states
                 if debug_output.value:
                     print(f"\n--- AGENT STATES ---")
@@ -311,6 +322,8 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
             print(f"Total edges: {final_stats['total_edges']}")
             print(f"Seeders: {final_stats['seeders']}")
             print(f"Leechers: {final_stats['leechers']}")
+            print(f"Hybrids: {final_stats['hybrids']}")
+            print(f"Dead nodes: {final_stats['dead_nodes']}")
             print(f"Complete leechers: {final_stats['complete_leechers']}")
             print(f"Incomplete leechers: {final_stats['incomplete_leechers']}")
             print(f"Completion rate: {final_stats['completion_rate']:.1%}")
@@ -336,6 +349,21 @@ def on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_s
                 print(f"Total transfers completed: {number_of_transfers}")
                 print(f"Success rate: {final_stats['completion_rate']:.1%}")
             
+            # Display analytics if enabled
+            if show_analytics.value and simulation_data:
+                print(f"\n{'='*60}")
+                print("GENERATING ANALYTICS...")
+                print(f"{'='*60}")
+                
+                try:
+                    # Activity over time with failure rate
+                    plot_activity_over_time(simulation_data, G, "Simulation Activity Over Time")
+                    
+                except Exception as e:
+                    print(f"Error generating analytics: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
     except Exception as e:
         print(f"Error running simulation: {e}")
         import traceback
@@ -349,11 +377,11 @@ def display_simulation_widgets():
     """Display the simulation widgets."""
 
     (simulation_type, max_rounds, seed, search_mode, neighbor_selection, 
-     ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, run_btn, output_area) = create_widgets()
+     ttl, k, single_agent, save_images, debug_output, visualize_output, show_analytics, run_btn, output_area) = create_widgets()
     
     def on_run_click(b):
         on_run_clicked(b, simulation_type, max_rounds, seed, search_mode, neighbor_selection, 
-                      ttl, k, cleanup_queries, single_agent, save_images, debug_output, visualize_output, output_area)
+                      ttl, k, single_agent, save_images, debug_output, visualize_output, show_analytics, output_area)
     
     run_btn.on_click(on_run_click)
     
@@ -366,8 +394,8 @@ def display_simulation_widgets():
         widgets.HBox([max_rounds, seed]),
         widgets.HBox([search_mode, neighbor_selection]),
         widgets.HBox([ttl, k]),
-        widgets.HBox([cleanup_queries, single_agent]),
-        widgets.HBox([save_images, debug_output, visualize_output]),
+        widgets.HBox([single_agent]),
+        widgets.HBox([save_images, debug_output, visualize_output, show_analytics]),
         widgets.HTML("<hr>"),
         output_area
     ])
