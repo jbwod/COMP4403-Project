@@ -75,7 +75,7 @@ def handle_node_lifecycle(G: nx.Graph, current_round: int, scenario_data: Dict) 
         
         # Revive node if it's the revive round
         elif current_round == revive_round and agent.agent_type == AgentType.DEAD:
-            agent.revive_node(G)
+            agent.revive_node(G, 15)  # TODO: parameterize with FILE_PIECES
             G.nodes[node_id]["role"] = agent.agent_type.value
             actions.append(f"Revived node {node_id} at round {current_round}")
     
