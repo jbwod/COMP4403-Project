@@ -58,6 +58,7 @@ class Agent:
     
     # DEAD state management
     stored_edges:   List[Tuple[int, int, Dict]] = field(default_factory=list)  # (neighbor, weight, attributes) for killed nodes
+    stored_pieces:  Set[int] = field(default_factory=set)  # File pieces when killed
     original_role:  Optional[AgentType] = None  # Original role before being killed
     
     ########################################################
@@ -435,6 +436,9 @@ class Agent:
         # Store original role
         self.original_role = self.agent_type
         
+        # Store file pieces
+        self.stored_pieces = self.file_pieces.copy()
+        
         # Store all edges
         self.stored_edges.clear()
         for neighbor in list(graph.neighbors(self.node_id)):
@@ -456,17 +460,26 @@ class Agent:
         self.query_routing.clear()
     
     # Revive node
-    def revive_node(self, graph: nx.Graph) -> None:
+    def revive_node(self, graph: nx.Graph, total_pieces: int = 15) -> None:
         """Revive this node."""
         if self.agent_type != AgentType.DEAD:
             return  # Not dead - yay!
             
-        # Restore
+        # Restore edges
         for neighbor, weight, attributes in self.stored_edges:
             # Remove weight from attributes if it exists to avoid duplicate
             edge_attrs = attributes.copy()
             edge_attrs.pop('weight', None)
             graph.add_edge(self.node_id, neighbor, weight=weight, **edge_attrs)
+
+        # Restore file pieces
+        self.file_pieces = self.stored_pieces.copy()
+        graph.nodes[self.node_id]["file_pieces"] = self.file_pieces
+        
+        # Set completion status based on pieces
+        is_complete = len(self.file_pieces) >= total_pieces
+        self.is_complete = is_complete
+        graph.nodes[self.node_id]["is_complete"] = is_complete
 
         if self.original_role:
             self.agent_type = self.original_role
@@ -474,8 +487,18 @@ class Agent:
         else:
             self.agent_type = AgentType.LEECHER  # Default fallback should work
         
-        # Clear stored edges
+        # Clear stored data
         self.stored_edges.clear()
+        self.stored_pieces.clear()
+        
+        # Reset agent state all
+        self.seen_queries.clear()
+        self.query_routing.clear()
+        self.failed_pieces.clear()
+        self.last_search_time.clear()
+        self.failed_piece_time.clear()
+        self.inbox.clear()
+        self.outbox.clear()
 
 
 ########################################################
