@@ -38,7 +38,7 @@ def weighted_scene(seed,nodes,lower_ut,upper_ut,FILE_PIECES,n_seeders,search_mod
     }
 
     # Generating BA graph
-    for m in range(1, 10, 1):
+    for m in range(1, 11, 1):
         ba = G.BA_graph(
             nodes    = nodes,
             edges    = m,
@@ -151,7 +151,9 @@ def weighted_scene(seed,nodes,lower_ut,upper_ut,FILE_PIECES,n_seeders,search_mod
                 print(f"Leechers: {stats['leechers']} (incomplete: {stats['incomplete_leechers']})")
                 print(f"Hybrids: {stats['hybrids']} (incomplete: {stats['incomplete_hybrids']})")
                 print(f"Total pieces in network: {stats['total_pieces_in_network']}")
-                print('about to go into stats')
+                #draw_gossip_step_by_step(Gk, result['message_rounds'], result['transfers'], 
+                #            FILE_PIECES, r, save_images=False, 
+                #            max_ttl=ttl, show_debug_info=False)
                 if stats['completion_rate'] >= 1.0:
                     print(f"\nAll nodes have all pieces in {r} rounds")
                     rec['final_round'] = r
