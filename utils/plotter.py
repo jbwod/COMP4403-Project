@@ -502,7 +502,7 @@ def create_round_gif(output_dir: str = None, gif_name: str = "rounds.gif",
     """Create a GIF from round images."""
     return create_gif_from_run(output_dir, gif_name, duration, "round_*_gossip_steps.png")
 
-def plot_activity_over_time(simulation_data: List[Dict], graph: nx.Graph = None, title: str = "Activity Over Time") -> None:
+def plot_activity_over_time(simulation_data: List[Dict], graph: nx.Graph = None, title: str = "Activity Over Time", show_plot: bool = True) -> None:
     """
     Plot activity over time.
     """
@@ -645,5 +645,7 @@ def plot_activity_over_time(simulation_data: List[Dict], graph: nx.Graph = None,
     
     plt.suptitle(title, fontsize=14)
     plt.tight_layout()
-    plt.show()
+    
+    if show_plot:
+        plt.show()
 
