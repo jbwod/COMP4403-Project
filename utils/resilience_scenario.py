@@ -61,13 +61,19 @@ def run_resilience_test():
         ba = G.BA_graph(nodes=nodes, edges=m, seed=seed, weighted=weighted, 
                        lower_ut=lower_ut, upper_ut=upper_ut)
         test_graphs.append(('BA', m, ba))
-    
+
     for m in range(1, 6):
         avg_deg = 2 * m  # BA graph with m edges has avg degree ~2m
         m_er = int(nodes * avg_deg / 2)
         er = G.ER_Graph_nm(nodes=nodes, edges=m_er, weighted=weighted, seed=seed,
                           lower_ut=lower_ut, upper_ut=upper_ut)
         test_graphs.append(('ER', m_er, er))
+        
+        # # Create ER graph with exact same edge count as BA
+        # E_ba = ba.number_of_edges()
+        # er = G.ER_Graph_nm(nodes=nodes, edges=E_ba, weighted=weighted, seed=seed,
+        #                   lower_ut=lower_ut, upper_ut=upper_ut)
+        # test_graphs.append(('ER', E_ba, er))
     
     scenarios = [
         ('Hub Removal', create_hub_removal_scenario),
