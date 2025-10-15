@@ -1,7 +1,7 @@
 import random
 from typing import Dict, List, Optional, Tuple
 
-from src.agent import get_network_stats, reset_agent_state
+from src.agent import get_network_stats, reset_agent_state, AgentType
 from utils.plotter import GraphPlotter
 
 import networkx as nx
@@ -25,19 +25,61 @@ class Environment:
         all_messages = []
         for node in self.graph.nodes():
             agent = self.graph.nodes[node].get('agent_object')
-            if agent:
+            if agent and agent.agent_type != AgentType.DEAD:
                 all_messages.extend(agent.outbox)
                 agent.outbox.clear()  # Clear
         
-        # Deliver messages
+        # Deliver messages (only to alive agents)
         for message in all_messages:
             target_node = message["to_node"]
             if target_node in self.graph.nodes():
                 target_agent = self.graph.nodes[target_node].get('agent_object')
-                if target_agent:
+                if target_agent and target_agent.agent_type != AgentType.DEAD:
                     target_agent.inbox.append(message)
 
         return transfers, completions
+
+
+########################################################
+# Node Killing/Reviving
+########################################################
+
+def handle_node_lifecycle(G: nx.Graph, current_round: int, scenario_data: Dict) -> List[str]:
+    """
+    Handle killing and reviving nodes based on scenario widgetcs.
+    """
+    actions = []
+    
+    if scenario_data.get('type') != 'kill_peers':
+        return actions
+    
+    rip_list = scenario_data.get('rips', [])
+    
+    for rip in rip_list:
+        node_id = rip.get('id')
+        kill_round = rip.get('kill_r')
+        revive_round = rip.get('rev_r')
+        
+        if node_id not in G.nodes():
+            continue
+            
+        agent = G.nodes[node_id].get('agent_object')
+        if not agent:
+            continue
+        
+        # Kill node if it's the kill round
+        if current_round == kill_round and agent.agent_type != AgentType.DEAD:
+            agent.kill_node(G)
+            G.nodes[node_id]["role"] = "dead"
+            actions.append(f"Killed node {node_id} at round {current_round}")
+        
+        # Revive node if it's the revive round
+        elif current_round == revive_round and agent.agent_type == AgentType.DEAD:
+            agent.revive_node(G, 15)  # TODO: parameterize with FILE_PIECES
+            G.nodes[node_id]["role"] = agent.agent_type.value
+            actions.append(f"Revived node {node_id} at round {current_round}")
+    
+    return actions
 
 
 ########################################################
@@ -48,7 +90,7 @@ def simulate_round_agent_driven(G: nx.Graph, total_pieces: int, seed: Optional[i
                                 single_agent: Optional[int] = None, cleanup_completed_queries: bool = True, 
                                 search_mode: str = "realistic", K: int = 3, ttl: int = 5, 
                                 max_searches_per_round: int = 3, current_round: int = 0, 
-                                neighbor_selection: str = "bandwidth") -> Dict:
+                                neighbor_selection: str = "bandwidth", scenario_data: Optional[Dict] = None) -> Dict:
     """
     Main simulation function - all message handling migrated to agent.py
     """
@@ -57,21 +99,33 @@ def simulate_round_agent_driven(G: nx.Graph, total_pieces: int, seed: Optional[i
     else:
         rng = random.Random()
     
+    # BEFORE any processing
+    lifecycle_actions = []
+    if scenario_data:
+        lifecycle_actions = handle_node_lifecycle(G, current_round, scenario_data)
+    
+    # Clear outbox of newly killed nodes to prevent them from sending messages
+    for node in G.nodes():
+        agent = G.nodes[node].get("agent_object")
+        if agent and agent.agent_type == AgentType.DEAD:
+            agent.outbox.clear()
+            agent.inbox.clear()
+    
     # Create environment
     env = Environment(G)
     
-    # Collect messages
+    # Collect messages (only from alive agents)
     all_messages = []
     for node in G.nodes():
         agent = G.nodes[node].get("agent_object")
-        if agent:
+        if agent and agent.agent_type != AgentType.DEAD:
             all_messages.extend(agent.inbox)  # Messages that will be processed
     
-    # Let each agent take one 'tick'
+    # Let each agent take one 'tick' (only alive agents)
     search_initiators = []
     for node in G.nodes():
         agent = G.nodes[node].get("agent_object")
-        if not agent:
+        if not agent or agent.agent_type == AgentType.DEAD:
             continue
         
         agent.tick(G, total_pieces, rng, K, ttl, current_round, neighbor_selection, single_agent)
@@ -82,12 +136,12 @@ def simulate_round_agent_driven(G: nx.Graph, total_pieces: int, seed: Optional[i
             if single_agent is None or node == single_agent:
                 search_initiators.append(node)
     
-    # Process transfer action
+    # Process transfer action (only for alive agents)
     transfers = []
     completions = []
     for node in G.nodes():
         agent = G.nodes[node].get("agent_object")
-        if agent:
+        if agent and agent.agent_type != AgentType.DEAD:
             # Process transfer actions in outbox
             transfer_actions = [msg for msg in agent.outbox if msg["type"] == "transfer"]
             # print(f"Node {node} has {len(transfer_actions)} transfer actions")
@@ -146,7 +200,8 @@ def simulate_round_agent_driven(G: nx.Graph, total_pieces: int, seed: Optional[i
         "message_rounds": [queries, hits, []],
         "agent_actions": {},  # not needed
         "search_initiators": search_initiators,
-        "num_searchers": len(search_initiators)
+        "num_searchers": len(search_initiators),
+        "lifecycle_actions": lifecycle_actions
     }
 
 
